@@ -4,6 +4,8 @@ from sklearn.base import BaseEstimator
 from sklearn.utils.validation import check_is_fitted
 from sklearn.metrics import pairwise_distances
 import numpy as np
+import plotly.graph_objects as gobj
+from shapely.geometry import MultiPoint
 from gudhi import SimplexTree
 from datasets_custom.utils.plotting import plot_point_cloud
 from datasets_custom.persistence_plotting import plot_persistences
@@ -70,8 +72,9 @@ class DowkerComplex(BaseEstimator):
             **plotting_kwargs
         )
 
-    def plot_1_skeleton(
+    def plot_skeleton(
         self,
+        k=2,
         threshold=np.inf,
         line_width=1,
         indicate_outliers=True,
@@ -82,6 +85,10 @@ class DowkerComplex(BaseEstimator):
             raise Exception(
                 "Plotting of the skeleton is supported only "
                 "for data sets of dimension at most 2."
+            )
+        if k not in {0, 1, 2}:
+            raise Exception(
+                "The value of `k` must be either 0, 1 or 2."
             )
         check_is_fitted(self, attributes="complex_")
         complex = self.complex_.copy()
@@ -99,20 +106,50 @@ class DowkerComplex(BaseEstimator):
             self.v_labels_[point_ixs],
             self.w_labels_
         ])
-        lines = self.points_[[
-            t[0]
-            for t in complex.get_skeleton(dimension=1)
-            if len(t[0]) == 2
-        ]].reshape(-1, 2, 2)
+        if k >= 1:
+            lines = self.points_[[
+                t[0]
+                for t in complex.get_skeleton(dimension=1)
+                if len(t[0]) == 2
+            ]].reshape(-1, 2, 2)
         fig = plot_point_cloud(
             points,
             labels=labels,
-            lines=lines,
+            lines=lines if k >= 1 else None,
             line_width=line_width,
             indicate_outliers=indicate_outliers,
             indicate_labels=indicate_labels,
             **plotting_kwargs
         )
+        if k == 2:
+            two_simplices_with_filtration = [
+                (spx, filtration)
+                for spx, filtration in complex.get_skeleton(dimension=2)
+                if len(spx) >= 3
+            ]
+            two_simplices = np.array([
+                self.V_[two_simplex]
+                for two_simplex, filtration in two_simplices_with_filtration
+            ])
+            for two_simplex in two_simplices:
+                x = two_simplex.T[0]
+                y = two_simplex.T[1]
+                convex_hull = np.array(
+                    MultiPoint(
+                        [xy for xy in zip(x, y)]
+                    ).convex_hull.exterior.coords
+                )
+                polygon = gobj.Scatter(
+                    x=convex_hull[:, 0],
+                    y=convex_hull[:, 1],
+                    showlegend=False,
+                    mode="lines",
+                    fill="toself",
+                    opacity=0.3,
+                    fillcolor="grey",
+                    line_color="grey"
+                )
+                fig.add_trace(polygon)
         fig_ref = plot_point_cloud(
             self.points_
         )
@@ -126,15 +163,21 @@ class DowkerComplex(BaseEstimator):
         )
         return fig
 
-    def plot_interactive_1_skeleton(
+    def plot_interactive_skeleton(
         self,
+        k=2,
         line_width=1,
         indicate_outliers=True,
         indicate_labels=False,
         **plotting_kwargs
     ):
-        fig_combined = self.plot_1_skeleton(
+        if k not in {0, 1, 2}:
+            raise Exception(
+                "The value of `k` must be either 0, 1 or 2."
+            )
+        fig_combined = self.plot_skeleton(
             threshold=0,
+            k=0,
             line_width=line_width,
             indicate_outliers=indicate_outliers,
             indicate_labels=indicate_labels,
@@ -144,8 +187,9 @@ class DowkerComplex(BaseEstimator):
         datum_ixs = defaultdict(list)
         datum_ix = len(fig_combined.data)
         for dist_ix, dist in enumerate(distances):
-            fig = self.plot_1_skeleton(
+            fig = self.plot_skeleton(
                 threshold=dist,
+                k=k,
                 line_width=line_width,
                 indicate_outliers=indicate_outliers,
                 indicate_labels=indicate_labels,
@@ -162,7 +206,7 @@ class DowkerComplex(BaseEstimator):
                 args=[
                     {"visible": [False] * len(fig_combined.data)},
                 ],
-                label=str(np.around(distances[dist_ix], 4))
+                label=str(np.round(distances[dist_ix], 6))
             )
             for ix in datum_ixs[dist_ix]:
                 step["args"][0]["visible"][ix] = True
