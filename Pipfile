@@ -6,6 +6,10 @@ name = "pypi"
 [packages]
 numpy = "*"
 gudhi = "*"
+scikit-learn = "*"
+datasets-custom = {editable = true, path = "/home/marius/datasets_custom"}
+plotly = "*"
+pandas = "*"
 
 [dev-packages]
 
