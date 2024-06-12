@@ -16,10 +16,12 @@ class DowkerComplex(BaseEstimator):
     def __init__(
         self,
         metric="euclidean",
-        max_dimension=2
+        max_dimension=2,
+        max_filtration=np.inf
     ):
         self.metric = metric
         self.max_dimension = max_dimension
+        self.max_filtration = max_filtration
 
     # V are potential vertices, W are reference points
     def fit(
@@ -44,6 +46,133 @@ class DowkerComplex(BaseEstimator):
             persistence = self.complex_.persistence(**persistence_kwargs)
             self.persistence_ = self._format_persistence(persistence)
         return self
+
+    def _get_complex(self):
+        self._dm_ = pairwise_distances(self.W_, self.V_)
+        self.filtrations_ = np.unique(self._dm_)
+        self.vertex_ixs = np.array([
+                self._dm_ <= filtration
+                for filtration in self.filtrations_
+        ]).astype(int)
+        self.vertex_ixs_to_filtration = np.concatenate(
+            [
+                np.concatenate(self.vertex_ixs),
+                np.repeat(self.filtrations_, len(self.W_)).reshape(-1, 1)
+            ],
+            axis=1
+        )
+        self.vertex_ixs_to_filtration_grouped = self._group_by_last_col(
+            self.vertex_ixs_to_filtration
+        )
+        self._splits = self._get_splits(self.vertex_ixs_to_filtration_grouped)
+        simplices_list = [
+            self._group_by_last_col(
+                self._get_simplices(dim=dim)
+            )
+            for dim in range(self.max_dimension+1)
+        ]
+        self.simplices = {
+            dim: {
+                "vertex_array": np.transpose(simplices[:, :-1]).astype(int),
+                "filtrations": simplices[:, -1]
+            }
+            for dim, simplices in enumerate(simplices_list)
+        }
+        self.simplex_tree = SimplexTree()
+        for dim in range(self.max_dimension+1):
+            self.simplex_tree.insert_batch(
+                **self.simplices[dim]
+            )
+        return self.simplex_tree
+
+    @staticmethod
+    def _group_by_last_col(a):
+        def is_sorted(a): return np.all(a[:-1] <= a[1:])
+        if not is_sorted(a[:, -1]):
+            a = a[np.argsort(a[:, -1])]
+        vals = np.unique(a[:, :-1], axis=0)
+        ixs = np.array([
+            np.argmax(
+                np.all(a[:, :-1].astype(int) == val, axis=1),
+                axis=0
+            )
+            for val in vals
+        ])
+        return a[ixs]
+
+    @staticmethod
+    def _get_splits(arr):
+        return [
+            arr[np.sum(arr[:, :-1], axis=1) == k]
+            for k in range(2, arr.shape[1])
+        ]
+
+    def _get_simplices(self, dim=1):
+        return np.concatenate(
+            [
+                np.concatenate(
+                    [
+                        self._get_ixs_batch(split[:, :-1], dim=dim),
+                        np.repeat(
+                            split[:, -1],
+                            self.binom(i+2, dim+1)
+                        ).reshape(-1, 1)
+                    ],
+                    axis=1
+                )
+                for i, split in enumerate(self._splits)
+            ],
+            axis=0
+        )
+
+    @staticmethod
+    def _get_ixs_batch(batch, dim=1):
+        if batch.shape[0] == 0:
+            return np.array([]).reshape(0, dim+1)
+        if dim == 1:
+            batch_one = np.nonzero(batch)[1].reshape(batch.shape[0], -1)
+            ixs = np.transpose(np.triu_indices(batch_one.shape[1], 1))
+            return np.concatenate(batch_one[:, ixs], axis=0)
+        else:
+            def _triu_cust(n, d):
+                if d == 1:
+                    return np.arange(n).reshape(-1, 1)
+                aux = np.transpose(np.triu(np.ones((n,) * d)).nonzero())
+                return aux[np.all(aux[:, :-1] < aux[:, 1:], axis=1)]
+            batch_one = np.nonzero(batch)[1].reshape(batch.shape[0], -1)
+            ixs = _triu_cust(batch_one.shape[1], dim+1)
+            return np.concatenate(batch_one[:, ixs], axis=0)
+
+    @staticmethod
+    def binom(n, k):
+        if k == 1:
+            return n
+        if k == 2:
+            return (n*(n-1))//2
+        elif k == 3:
+            return (n*(n-1)*(n-2))//6
+        else:
+            import scipy
+            return int(scipy.special.binom(n, k))
+
+    @staticmethod
+    def _format_persistence(persistence):
+        if len(persistence) == 0:
+            max_hom_dim = 0
+        else:
+            max_hom_dim = max([dim for dim, gen in persistence])
+        persistence_formatted = [
+            np.array([
+                gen
+                for dim, gen in persistence if dim == i
+            ]).reshape(-1, 2)
+            for i in range(max_hom_dim+1)
+        ]
+        persistence_sorted = [
+            hom[np.argsort(np.diff(hom, axis=1).reshape(-1,))]
+            for hom in persistence_formatted
+        ]
+        return persistence_sorted
 
     def plot_persistence(self, **plotting_kwargs):
         check_is_fitted(self, attributes="persistence_")
@@ -77,8 +206,7 @@ class DowkerComplex(BaseEstimator):
         k=2,
         threshold=np.inf,
         line_width=1,
-        indicate_outliers=True,
-        indicate_labels=False,
+        colorscale="jet",
         **plotting_kwargs
     ):
         if self.points_.shape[1] not in {1, 2}:
@@ -117,8 +245,7 @@ class DowkerComplex(BaseEstimator):
             labels=labels,
             lines=lines if k >= 1 else None,
             line_width=line_width,
-            indicate_outliers=indicate_outliers,
-            indicate_labels=indicate_labels,
+            colorscale=colorscale,
             **plotting_kwargs
         )
         if k == 2:
@@ -183,7 +310,10 @@ class DowkerComplex(BaseEstimator):
             indicate_labels=indicate_labels,
             **plotting_kwargs
         )
-        distances = np.concatenate([[0], np.unique(self._dm_)])
+        distances = np.unique([
+            filtration
+            for splx, filtration in self.simplex_tree.get_filtration()
+        ])
         datum_ixs = defaultdict(list)
         datum_ix = len(fig_combined.data)
         for dist_ix, dist in enumerate(distances):
@@ -200,7 +330,7 @@ class DowkerComplex(BaseEstimator):
                 datum_ixs[dist_ix].append(datum_ix)
                 datum_ix += 1
         steps = []
-        for dist_ix, dist in enumerate(np.unique(self._dm_)):
+        for dist_ix, dist in enumerate(distances):
             step = dict(
                 method="update",
                 args=[
@@ -221,60 +351,3 @@ class DowkerComplex(BaseEstimator):
             sliders=sliders
         )
         return fig_combined
-
-    def _get_complex(self):
-        batches = self._get_batches()
-        st = SimplexTree()
-        for vertex_array, filtrations in batches:
-            st.insert_batch(
-                vertex_array=vertex_array.astype(int),
-                filtrations=filtrations
-            )
-        return st
-
-    def _get_batches(self):
-        self._dm_ = pairwise_distances(self.W_, self.V_)
-        distances = np.unique(self._dm_)
-        simplices = np.array([
-                self._dm_ <= distance
-                for distance in distances
-        ])
-        simplices_with_filtrations = np.concatenate([
-            np.vstack(simplices),
-            np.repeat(distances, len(self.W_)).reshape(-1, 1)
-        ], axis=1)
-
-        def _batches(dim):
-            ixs = np.argwhere(
-                np.sum(
-                    simplices_with_filtrations[:, :-1].astype(int),
-                    axis=1
-                ) == dim+1
-            ).reshape(-1,)
-            vertex_array, filtrations = (
-                simplices_with_filtrations[ixs][:, :-1],
-                simplices_with_filtrations[ixs][:, -1]
-            )
-            vertex_array = np.nonzero(vertex_array)[1].reshape(-1, dim+1).T
-            return vertex_array, filtrations
-        yield from (_batches(dim) for dim in range(self.max_dimension+1))
-
-    # def _check_filtrations(self):
-    #     return (
-    #         self.filtrations_.diagonal() == self.filtrations_.min(axis=1)
-    #     ).all()
-
-    @staticmethod
-    def _format_persistence(persistence):
-        persistence_formatted = [
-            np.array([
-                gen
-                for dim, gen in persistence if dim == i
-            ])
-            for i in range(max([dim for dim, gen in persistence])+1)
-        ]
-        persistence_sorted = [
-            hom[np.argsort(np.diff(hom, axis=1).reshape(-1,))]
-            for hom in persistence_formatted
-        ]
-        return persistence_sorted
