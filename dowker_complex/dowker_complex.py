@@ -9,16 +9,27 @@ from shapely.geometry import MultiPoint
 from gudhi import SimplexTree
 from datasets_custom.utils.plotting import plot_point_cloud
 from datasets_custom.persistence_plotting import plot_persistences
+import pandas as pd
 
 
 class DowkerComplex(BaseEstimator):
 
+    verbose = False
+
+    def vprint(s):
+        if DowkerComplex.verbose:
+            print(s)
+        else:
+            pass
+
     def __init__(
         self,
+        method,
         metric="euclidean",
         max_dimension=2,
         max_filtration=np.inf
     ):
+        self.method = method
         self.metric = metric
         self.max_dimension = max_dimension
         self.max_filtration = max_filtration
@@ -49,11 +60,14 @@ class DowkerComplex(BaseEstimator):
 
     def _get_complex(self):
         self._dm_ = pairwise_distances(self.W_, self.V_)
+        DowkerComplex.vprint(1)
         self.filtrations_ = np.unique(self._dm_)
+        DowkerComplex.vprint(2)
         self.vertex_ixs = np.array([
                 self._dm_ <= filtration
                 for filtration in self.filtrations_
         ]).astype(int)
+        DowkerComplex.vprint(3)
         self.vertex_ixs_to_filtration = np.concatenate(
             [
                 np.concatenate(self.vertex_ixs),
@@ -61,16 +75,24 @@ class DowkerComplex(BaseEstimator):
             ],
             axis=1
         )
+        DowkerComplex.vprint(4)
+        # self.vertex_ixs_to_filtration_grouped = self.vertex_ixs_to_filtration
         self.vertex_ixs_to_filtration_grouped = self._group_by_last_col(
-            self.vertex_ixs_to_filtration
+            self.vertex_ixs_to_filtration,
+            self.method
         )
+        DowkerComplex.vprint(5)
         self._splits = self._get_splits(self.vertex_ixs_to_filtration_grouped)
+        DowkerComplex.vprint(6)
         simplices_list = [
+            # self._get_simplices(dim=dim)
             self._group_by_last_col(
-                self._get_simplices(dim=dim)
+                self._get_simplices(dim=dim),
+                self.method
             )
             for dim in range(self.max_dimension+1)
         ]
+        DowkerComplex.vprint(7)
         self.simplices = {
             dim: {
                 "vertex_array": np.transpose(simplices[:, :-1]).astype(int),
@@ -78,36 +100,69 @@ class DowkerComplex(BaseEstimator):
             }
             for dim, simplices in enumerate(simplices_list)
         }
+        DowkerComplex.vprint(8)
         self.simplex_tree = SimplexTree()
         for dim in range(self.max_dimension+1):
+            DowkerComplex.vprint(
+                f'{self.simplices[dim]["vertex_array"].shape = }'
+            )
             self.simplex_tree.insert_batch(
                 **self.simplices[dim]
             )
         return self.simplex_tree
 
     @staticmethod
-    def _group_by_last_col(a):
+    def _group_by_last_col(a, method="sof"):
+        DowkerComplex.vprint("Grouping...")
         def is_sorted(a): return np.all(a[:-1] <= a[1:])
         if not is_sorted(a[:, -1]):
             a = a[np.argsort(a[:, -1])]
-        vals = np.unique(a[:, :-1], axis=0)
-        ixs = np.array([
-            np.argmax(
-                np.all(a[:, :-1].astype(int) == val, axis=1),
-                axis=0
+        if method == "sof":
+            return a[np.unique(a[:, :-1], return_index=True, axis=0)[1]]
+        elif method == "original":
+            vals = np.unique(a[:, :-1], axis=0)
+            ixs = np.array([
+                np.argmax(
+                    np.all(a[:, :-1].astype(int) == val, axis=1),
+                    axis=0
+                )
+                for val in vals
+            ])
+            DowkerComplex.vprint("Done grouping.")
+            return a[ixs]
+        elif method == "pandas":
+            df = pd.DataFrame({
+                    "last": a[:, -1]
+                })
+            df["first_n"] = a[:, :-1].tolist()
+            df = df.groupby(
+                df["first_n"].map(tuple)
+            )["last"].min().reset_index()
+            return np.concatenate(
+                [
+                    df["first_n"].values.tolist(),
+                    df["last"].values.reshape(-1, 1)
+                ],
+                axis=1
             )
-            for val in vals
-        ])
-        return a[ixs]
+        elif method == "pandas_new":
+            df = pd.DataFrame(a)
+            cols = df.columns.to_list()
+            df = df.groupby(
+                cols[:-1],
+                as_index=False
+            )[cols[-1]].agg("min")
+            return df.to_numpy()
 
     @staticmethod
     def _get_splits(arr):
         return [
             arr[np.sum(arr[:, :-1], axis=1) == k]
-            for k in range(2, arr.shape[1])
+            for k in range(1, arr.shape[1])
         ]
 
     def _get_simplices(self, dim=1):
+        DowkerComplex.vprint(f"{dim = }")
         return np.concatenate(
             [
                 np.concatenate(
@@ -115,7 +170,7 @@ class DowkerComplex(BaseEstimator):
                         self._get_ixs_batch(split[:, :-1], dim=dim),
                         np.repeat(
                             split[:, -1],
-                            self.binom(i+2, dim+1)
+                            self.binom(i+1, dim+1)
                         ).reshape(-1, 1)
                     ],
                     axis=1
@@ -310,9 +365,12 @@ class DowkerComplex(BaseEstimator):
             indicate_labels=indicate_labels,
             **plotting_kwargs
         )
-        distances = np.unique([
-            filtration
-            for splx, filtration in self.simplex_tree.get_filtration()
+        distances = np.concatenate([
+            [0],
+            np.unique([
+                filtration
+                for splx, filtration in self.simplex_tree.get_filtration()
+            ])
         ])
         datum_ixs = defaultdict(list)
         datum_ix = len(fig_combined.data)
