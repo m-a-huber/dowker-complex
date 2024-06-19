@@ -7,152 +7,170 @@ import numpy as np
 import plotly.graph_objects as gobj
 from shapely.geometry import MultiPoint
 from gudhi import SimplexTree
-from datasets_custom.utils.plotting import plot_point_cloud
-from datasets_custom.persistence_plotting import plot_persistences
+from datasets_custom.plotting import plot_point_cloud, plot_persistences
 import pandas as pd
 
 
 class DowkerComplex(BaseEstimator):
+    """This class implements the Dowker persistent homology introduced in [1].
+    This, in turn, is a generalization of the Dowker complex introduced in [2]
+    to the setting of persistent homology.
 
-    verbose = False
+    Parameters:
+        metric (str, optional): The metric used to compute distance between
+            data points. Must be one of the metrics listed in
+            ``sklearn.metrics.pairwise.PAIRWISE_DISTANCE_FUNCTIONS``.
+            Defaults to "euclidean".
+        max_dimension(int, optional): The maximum dimension of simplices used
+            when creating the Dowker simplicial complex. Defaults to 2.
+        max_filtration (float, optional): The maximum filtration value of
+            simplices used when creating the Dowker simplicial complex.
+            Defaults to `np.inf`.
 
-    def vprint(s):
-        if DowkerComplex.verbose:
-            print(s)
-        else:
-            pass
+    Attributes:
+        vertices_ (numpy.ndarray of shape (n_vertices, dim)): NumPy-array
+            containing the vertices.
+        witnesses_ (numpy.ndarray of shape (n_witnesses, dim)): NumPy-array
+            containing the witnesses.
+        filtrations_ (numpy.ndarray of shape (n_unique_distances,)):
+            NumPy-array containing the unique distances between vertices and
+            witnesses, sorted in ascending order.
+        simplices_ (dict of int: dict of str: numpy.ndarray): Dictionary whose
+            keys are the integers 0, ..., `max_dimension`, and whose values
+            are dictionaries containing the arguments to
+            `gudhi.SimplexTree.insert_batch`. That is, each of these
+            dictionaries has `"vertex_array"` and `"filtrations"` as keys, and
+            NumPy-arrays of shape (dim + 1, n_simplices) and (n_simplices,),
+            respectively, as its values.
+        complex_ (:class:`~gudhi.SimplexTree`): The Dowker simplicial complex
+            constructed from the vertices and witnesses, given as an instance
+            of :class:`~gudhi.SimplexTree`.
+        persistence_ (list[numpy.ndarray]): The persistent homology computed
+            from the Dowker simplicial complex. The format of this data is a
+            list of NumPy-arrays of shape (n_generators, 2), where the i-th
+            entry of the list is an array containing the birth and death times
+            of the homological generators in dimension i-1. In particular, the
+            list starts with 0-dimensional homology and contains information
+            from consecutive homological dimensions.
 
+    References:
+        [1]: Samir Chowdhury, & Facundo Mémoli (2018). A functorial Dowker
+            theorem and persistent homology of asymmetric networks. J. Appl.
+            Comput. Topol., 2(1-2), 115–175.
+        [2]: C. H. Dowker (1952). Homology Groups of Relations. Annals of
+            Mathematics, 56(1), 84–95.
+
+    Examples:
+    """
     def __init__(
         self,
-        method,
         metric="euclidean",
         max_dimension=2,
         max_filtration=np.inf
     ):
-        self.method = method
         self.metric = metric
         self.max_dimension = max_dimension
         self.max_filtration = max_filtration
 
-    # V are potential vertices, W are reference points
     def fit(
         self,
-        V,
-        W,
-        max_filtration=np.inf,
+        vertices,
+        witnesses,
         compute_persistence=True,
         **persistence_kwargs
     ):
-        self.V_ = V
-        self.W_ = W
-        self.points_ = np.concatenate([self.V_, self.W_])
-        self.v_labels_ = np.zeros(len(self.V_))
-        self.w_labels_ = -np.ones(len(self.W_))
-        self.labels_ = np.concatenate([
-            self.v_labels_,
-            self.w_labels_
+        """Method that fits an DowkerComplex instance to a pair of point
+        clouds consisting of vertices and witnesses.
+
+        Args:
+            vertices (numpy.ndarray of shape (n_vertices, dim)): NumPy-array
+                containing the vertices.
+            witnesses (numpy.ndarray of shape (n_witnesses, dim)): NumPy-array
+                containing the witnesses.
+            compute_persistence (bool, optional): Whether or not persistent
+                homology should be computed, as opposed to computing the
+                Dowker simplicial complex only. Defaults to True.
+
+        Returns:
+            :class:`dowker_complex.DowkerComplex`: Fitted instance of
+                DowkerComplex.
+        """
+        self.vertices_ = vertices
+        self.witnesses_ = witnesses
+        self._labels_vertices_ = np.zeros(len(self.vertices_))
+        self._labels_witnesses_ = -np.ones(len(self.witnesses_))
+        self._points_ = np.concatenate([self.vertices_, self.witnesses_])
+        self._labels_ = np.concatenate([
+            self._labels_vertices_,
+            self._labels_witnesses_
         ])
         self.complex_ = self._get_complex()
+        if self.max_filtration < np.inf:
+            self.complex_.prune_above_filtration(self.max_filtration)
         if compute_persistence:
             persistence = self.complex_.persistence(**persistence_kwargs)
             self.persistence_ = self._format_persistence(persistence)
         return self
 
     def _get_complex(self):
-        self._dm_ = pairwise_distances(self.W_, self.V_)
-        DowkerComplex.vprint(1)
+        self._dm_ = pairwise_distances(
+            self.witnesses_,
+            self.vertices_,
+            metric=self.metric
+        )
         self.filtrations_ = np.unique(self._dm_)
-        DowkerComplex.vprint(2)
-        self.vertex_ixs = np.array([
+        self._vertex_ixs_ = np.array([
                 self._dm_ <= filtration
                 for filtration in self.filtrations_
         ]).astype(int)
-        DowkerComplex.vprint(3)
-        self.vertex_ixs_to_filtration = np.concatenate(
+        self._vertex_ixs_to_filtration_ = np.concatenate(
             [
-                np.concatenate(self.vertex_ixs),
-                np.repeat(self.filtrations_, len(self.W_)).reshape(-1, 1)
+                np.concatenate(self._vertex_ixs_),
+                np.repeat(
+                    self.filtrations_,
+                    len(self.witnesses_)
+                ).reshape(-1, 1)
             ],
             axis=1
         )
-        DowkerComplex.vprint(4)
-        # self.vertex_ixs_to_filtration_grouped = self.vertex_ixs_to_filtration
-        self.vertex_ixs_to_filtration_grouped = self._group_by_last_col(
-            self.vertex_ixs_to_filtration,
-            self.method
+        self._vertex_ixs_to_filtration_grouped_ = self._group_by_last_col(
+            self._vertex_ixs_to_filtration_
         )
-        DowkerComplex.vprint(5)
-        self._splits = self._get_splits(self.vertex_ixs_to_filtration_grouped)
-        DowkerComplex.vprint(6)
+        self._splits_ = self._get_splits(
+            self._vertex_ixs_to_filtration_grouped_
+        )
         simplices_list = [
-            # self._get_simplices(dim=dim)
             self._group_by_last_col(
-                self._get_simplices(dim=dim),
-                self.method
+                self._get_simplices(dim=dim)
             )
             for dim in range(self.max_dimension+1)
         ]
-        DowkerComplex.vprint(7)
-        self.simplices = {
+        self.simplices_ = {
             dim: {
                 "vertex_array": np.transpose(simplices[:, :-1]).astype(int),
                 "filtrations": simplices[:, -1]
             }
             for dim, simplices in enumerate(simplices_list)
         }
-        DowkerComplex.vprint(8)
-        self.simplex_tree = SimplexTree()
+        simplex_tree_ = SimplexTree()
         for dim in range(self.max_dimension+1):
-            DowkerComplex.vprint(
-                f'{self.simplices[dim]["vertex_array"].shape = }'
+            simplex_tree_.insert_batch(
+                **self.simplices_[dim]
             )
-            self.simplex_tree.insert_batch(
-                **self.simplices[dim]
-            )
-        return self.simplex_tree
+        return simplex_tree_
 
     @staticmethod
-    def _group_by_last_col(a, method="sof"):
-        DowkerComplex.vprint("Grouping...")
+    def _group_by_last_col(a):
         def is_sorted(a): return np.all(a[:-1] <= a[1:])
         if not is_sorted(a[:, -1]):
             a = a[np.argsort(a[:, -1])]
-        if method == "sof":
-            return a[np.unique(a[:, :-1], return_index=True, axis=0)[1]]
-        elif method == "original":
-            vals = np.unique(a[:, :-1], axis=0)
-            ixs = np.array([
-                np.argmax(
-                    np.all(a[:, :-1].astype(int) == val, axis=1),
-                    axis=0
-                )
-                for val in vals
-            ])
-            DowkerComplex.vprint("Done grouping.")
-            return a[ixs]
-        elif method == "pandas":
-            df = pd.DataFrame({
-                    "last": a[:, -1]
-                })
-            df["first_n"] = a[:, :-1].tolist()
-            df = df.groupby(
-                df["first_n"].map(tuple)
-            )["last"].min().reset_index()
-            return np.concatenate(
-                [
-                    df["first_n"].values.tolist(),
-                    df["last"].values.reshape(-1, 1)
-                ],
-                axis=1
-            )
-        elif method == "pandas_new":
-            df = pd.DataFrame(a)
-            cols = df.columns.to_list()
-            df = df.groupby(
-                cols[:-1],
-                as_index=False
-            )[cols[-1]].agg("min")
-            return df.to_numpy()
+        df = pd.DataFrame(a)
+        cols = df.columns.to_list()
+        df = df.groupby(
+            cols[:-1],
+            as_index=False
+        )[cols[-1]].agg("min")
+        return df.to_numpy()
 
     @staticmethod
     def _get_splits(arr):
@@ -162,7 +180,6 @@ class DowkerComplex(BaseEstimator):
         ]
 
     def _get_simplices(self, dim=1):
-        DowkerComplex.vprint(f"{dim = }")
         return np.concatenate(
             [
                 np.concatenate(
@@ -170,12 +187,12 @@ class DowkerComplex(BaseEstimator):
                         self._get_ixs_batch(split[:, :-1], dim=dim),
                         np.repeat(
                             split[:, -1],
-                            self.binom(i+1, dim+1)
+                            self._binom(i+1, dim+1)
                         ).reshape(-1, 1)
                     ],
                     axis=1
                 )
-                for i, split in enumerate(self._splits)
+                for i, split in enumerate(self._splits_)
             ],
             axis=0
         )
@@ -199,7 +216,7 @@ class DowkerComplex(BaseEstimator):
             return np.concatenate(batch_one[:, ixs], axis=0)
 
     @staticmethod
-    def binom(n, k):
+    def _binom(n, k):
         if k == 1:
             return n
         if k == 2:
@@ -230,6 +247,17 @@ class DowkerComplex(BaseEstimator):
         return persistence_sorted
 
     def plot_persistence(self, **plotting_kwargs):
+        """Method plotting the Dowker persistence. Underlying instance must be
+        fitted and have the attribute `persistence_`.
+
+        Args:
+            plotting_kwargs (optional): Arguments passed to the function
+                `datasets_custom.persistence_plotting.plot_persistences`.
+
+        Returns:
+            :class:`plotly.graph_objs._figure.Figure`: A plot of the
+                persistence diagram.
+        """
         check_is_fitted(self, attributes="persistence_")
         fig = plot_persistences(
             [self.persistence_],
@@ -239,20 +267,40 @@ class DowkerComplex(BaseEstimator):
 
     def plot_points(
         self,
-        indicate_outliers=True,
-        indicate_labels=False,
+        indicate_witnesses=True,
+        use_colors=True,
         **plotting_kwargs
     ):
-        if self.points_.shape[1] not in {1, 2, 3}:
+        """Method plotting the vertices and witnesses underlying a fitted
+        instance of DowkerComplex. Works for point clouds up to dimension
+        three only.
+
+        Args:
+            indicate_witnesses (bool, optional): Whether or not to use a
+                distinguished marker to indicate the witness points.
+                Defaults to True.
+            use_colors (bool, optional): Whether or not to color the vertices
+                and witnesses in different colors. Defaults to True.
+            plotting_kwargs (optional): Arguments passed to the function
+                `datasets_custom.utils.plotting.plot_point_cloud`, such as
+                `marker_size` and `colorscale`.
+
+        Returns:
+            :class:`plotly.graph_objs._figure.Figure`: A plot of the
+                vertex and witness point clouds.
+        """
+        check_is_fitted(self, attributes=["vertices_", "witnesses_"])
+        if self._points_.shape[1] not in {1, 2, 3}:
             raise Exception(
                 "Plotting is supported only for data "
                 "sets of dimension at most 3."
             )
         return plot_point_cloud(
-            self.points_,
-            labels=self.labels_,
-            indicate_outliers=indicate_outliers,
-            indicate_labels=indicate_labels,
+            self._points_,
+            labels=self._labels_,
+            indicate_outliers=indicate_witnesses,
+            indicate_labels=use_colors,
+            colorscale="wong",
             **plotting_kwargs
         )
 
@@ -260,11 +308,33 @@ class DowkerComplex(BaseEstimator):
         self,
         k=2,
         threshold=np.inf,
-        line_width=1,
-        colorscale="jet",
+        indicate_witnesses=True,
+        use_colors=True,
         **plotting_kwargs
     ):
-        if self.points_.shape[1] not in {1, 2}:
+        """Method plotting the k-skeleton of the Dowker complex underlying a
+        fitted instance of DowkerComplex. Works for values of k and point
+        clouds of dimension up to and including 2.
+
+        Args:
+            k (int, optional): Dimension of the skeleton to be plotted.
+                Defaults to 2.
+            threshold (_type_, optional): The maximum filtration level of
+                simplices to be plotted. Defaults to np.inf.
+            indicate_witnesses (bool, optional): Whether or not to use a
+                distinguished marker to indicate the witness points.
+                Defaults to True.
+            use_colors (bool, optional): Whether or not to color the vertices
+                and witnesses in different colors. Defaults to True.
+            plotting_kwargs (optional): Arguments passed to the function
+                `datasets_custom.utils.plotting.plot_point_cloud`, such as
+                `line_width` and `colorscale`.
+
+        Returns:
+            :class:`plotly.graph_objs._figure.Figure`: A plot of the
+                k-skeleton.
+        """
+        if self._points_.shape[1] not in {1, 2}:
             raise Exception(
                 "Plotting of the skeleton is supported only "
                 "for data sets of dimension at most 2."
@@ -276,31 +346,32 @@ class DowkerComplex(BaseEstimator):
         check_is_fitted(self, attributes="complex_")
         complex = self.complex_.copy()
         complex.prune_above_filtration(threshold)
-        point_ixs = [
-            t[0][0]
-            for t in complex.get_skeleton(dimension=1)
-            if len(t[0]) == 1
+        vertex_ixs = [
+            simplex[0]
+            for simplex, filtration in complex.get_skeleton(dimension=1)
+            if len(simplex) == 1
         ]
         points = np.concatenate([
-            self.V_[point_ixs].reshape(-1, 2),
-            self.W_
+            self.vertices_[vertex_ixs].reshape(-1, 2),
+            self.witnesses_
         ])
         labels = np.concatenate([
-            self.v_labels_[point_ixs],
-            self.w_labels_
+            self._labels_vertices_[vertex_ixs],
+            self._labels_witnesses_
         ])
         if k >= 1:
-            lines = self.points_[[
-                t[0]
-                for t in complex.get_skeleton(dimension=1)
-                if len(t[0]) == 2
+            lines = self._points_[[
+                simplex
+                for simplex, filtration in complex.get_skeleton(dimension=1)
+                if len(simplex) == 2
             ]].reshape(-1, 2, 2)
         fig = plot_point_cloud(
             points,
             labels=labels,
+            indicate_outliers=indicate_witnesses,
+            indicate_labels=use_colors,
+            colorscale="wong",
             lines=lines if k >= 1 else None,
-            line_width=line_width,
-            colorscale=colorscale,
             **plotting_kwargs
         )
         if k == 2:
@@ -310,7 +381,7 @@ class DowkerComplex(BaseEstimator):
                 if len(spx) >= 3
             ]
             two_simplices = np.array([
-                self.V_[two_simplex]
+                self.vertices_[two_simplex]
                 for two_simplex, filtration in two_simplices_with_filtration
             ])
             for two_simplex in two_simplices:
@@ -333,7 +404,7 @@ class DowkerComplex(BaseEstimator):
                 )
                 fig.add_trace(polygon)
         fig_ref = plot_point_cloud(
-            self.points_
+            self._points_
         )
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore")
@@ -348,11 +419,35 @@ class DowkerComplex(BaseEstimator):
     def plot_interactive_skeleton(
         self,
         k=2,
-        line_width=1,
-        indicate_outliers=True,
-        indicate_labels=False,
+        indicate_witnesses=True,
+        use_colors=True,
         **plotting_kwargs
     ):
+        """Method plotting an interactive version of the k-skeleton of the
+        Dowker complex underlying a fitted instance of DowkerComplex. Works
+        for values of k and point clouds of dimension up to and including 2.
+
+        Args:
+            k (int, optional): Dimension of the skeleton to be plotted.
+                Defaults to 2.
+            indicate_witnesses (bool, optional): Whether or not to use a
+                distinguished marker to indicate the witness points.
+                Defaults to True.
+            use_colors (bool, optional): Whether or not to color the vertices
+                and witnesses in different colors. Defaults to True.
+            plotting_kwargs (optional): Arguments passed to the function
+                `datasets_custom.utils.plotting.plot_point_cloud`, such as
+                `line_width` and `colorscale`.
+
+        Returns:
+            :class:`plotly.graph_objs._figure.Figure`: An interactive plot of
+                the k-skeleton.
+        """
+        if self._points_.shape[1] not in {1, 2}:
+            raise Exception(
+                "Plotting of the skeleton is supported only "
+                "for data sets of dimension at most 2."
+            )
         if k not in {0, 1, 2}:
             raise Exception(
                 "The value of `k` must be either 0, 1 or 2."
@@ -360,27 +455,26 @@ class DowkerComplex(BaseEstimator):
         fig_combined = self.plot_skeleton(
             threshold=0,
             k=0,
-            line_width=line_width,
-            indicate_outliers=indicate_outliers,
-            indicate_labels=indicate_labels,
+            indicate_witnesses=indicate_witnesses,
+            use_colors=use_colors,
             **plotting_kwargs
         )
         distances = np.concatenate([
             [0],
             np.unique([
                 filtration
-                for splx, filtration in self.simplex_tree.get_filtration()
+                for simplex, filtration in self.complex_.get_filtration()
             ])
         ])
+        print(f"{len(distances) = }")
         datum_ixs = defaultdict(list)
         datum_ix = len(fig_combined.data)
         for dist_ix, dist in enumerate(distances):
             fig = self.plot_skeleton(
                 threshold=dist,
                 k=k,
-                line_width=line_width,
-                indicate_outliers=indicate_outliers,
-                indicate_labels=indicate_labels,
+                indicate_witnesses=indicate_witnesses,
+                use_colors=use_colors,
                 **plotting_kwargs
             )
             for datum in fig.data:
