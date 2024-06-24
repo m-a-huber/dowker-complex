@@ -66,11 +66,13 @@ class DowkerComplex(BaseEstimator):
         self,
         metric="euclidean",
         max_dimension=2,
-        max_filtration=np.inf
+        max_filtration=np.inf,
+        method="old"
     ):
         self.metric = metric
         self.max_dimension = max_dimension
         self.max_filtration = max_filtration
+        self.method = method
 
     def fit(
         self,
@@ -118,40 +120,55 @@ class DowkerComplex(BaseEstimator):
             self.vertices_,
             metric=self.metric
         )
-        self.filtrations_ = np.unique(self._dm_)
-        self._vertex_ixs_ = np.array([
-                self._dm_ <= filtration
-                for filtration in self.filtrations_
-        ]).astype(int)
-        self._vertex_ixs_to_filtration_ = np.concatenate(
-            [
-                np.concatenate(self._vertex_ixs_),
-                np.repeat(
-                    self.filtrations_,
-                    len(self.witnesses_)
-                ).reshape(-1, 1)
-            ],
-            axis=1
-        )
-        self._vertex_ixs_to_filtration_grouped_ = self._group_by_last_col(
-            self._vertex_ixs_to_filtration_
-        )
-        self._splits_ = self._get_splits(
-            self._vertex_ixs_to_filtration_grouped_
-        )
-        simplices_list = [
-            self._group_by_last_col(
-                self._get_simplices(dim=dim)
-            )
-            for dim in range(self.max_dimension+1)
-        ]
-        self.simplices_ = {
-            dim: {
-                "vertex_array": np.transpose(simplices[:, :-1]).astype(int),
-                "filtrations": simplices[:, -1]
+        if self.method == "new":
+            simplices_list = [
+                self._get_simplices_new(dim=dim)
+                for dim in range(self.max_dimension+1)
+            ]
+            self.simplices_ = {
+                dim: {
+                    "vertex_array": np.transpose(simplices[:, :-1]).astype(int),
+                    "filtrations": simplices[:, -1]
+                }
+                for dim, simplices in enumerate(simplices_list)
             }
-            for dim, simplices in enumerate(simplices_list)
-        }
+        elif self.method == "old":
+            # max_filtration = np.min(np.max(self._dm_, axis=1))
+            # self.filtrations_ = np.unique(self._dm_[self._dm_ <= max_filtration])
+            self.filtrations_ = np.unique(self._dm_)
+            self._vertex_ixs_ = np.array([
+                    self._dm_ <= filtration
+                    for filtration in self.filtrations_
+            ]).astype(int)
+            self._vertex_ixs_to_filtration_ = np.concatenate(
+                [
+                    np.concatenate(self._vertex_ixs_),
+                    np.repeat(
+                        self.filtrations_,
+                        len(self.witnesses_)
+                    ).reshape(-1, 1)
+                ],
+                axis=1
+            )
+            self._vertex_ixs_to_filtration_grouped_ = self._group_by_last_col(
+                self._vertex_ixs_to_filtration_
+            )
+            self._splits_ = self._get_splits(
+                self._vertex_ixs_to_filtration_grouped_
+            )
+            simplices_list = [
+                self._group_by_last_col(
+                    self._get_simplices(dim=dim)
+                )
+                for dim in range(self.max_dimension+1)
+            ]
+            self.simplices_ = {
+                dim: {
+                    "vertex_array": np.transpose(simplices[:, :-1]).astype(int),
+                    "filtrations": simplices[:, -1]
+                }
+                for dim, simplices in enumerate(simplices_list)
+            }
         simplex_tree_ = SimplexTree()
         for dim in range(self.max_dimension+1):
             simplex_tree_.insert_batch(
@@ -196,6 +213,35 @@ class DowkerComplex(BaseEstimator):
             ],
             axis=0
         )
+
+    def _get_simplices_new(self, dim):
+        spx_ixs = self._get_spx_ixs(dim=dim)
+        filtrations = np.min(
+            np.max(self._dm_[:, spx_ixs], axis=2),
+            axis=0
+        )
+        return np.concatenate(
+            [
+                spx_ixs,
+                filtrations.reshape(-1, 1)
+            ],
+            axis=1
+        )
+
+    def _get_spx_ixs(self, dim):
+        if self.vertices_.shape[0] == 0:
+            return np.array([]).reshape(0, dim+1)
+        if dim == 0:
+            return np.arange(self.vertices_.shape[0]).reshape(-1, 1)
+        elif dim == 1:
+            return np.transpose(np.triu_indices(self.vertices_.shape[0], 1))
+        else:
+            def _triu_cust(n, d):
+                if d == 1:
+                    return np.arange(n).reshape(-1, 1)
+                aux = np.transpose(np.triu(np.ones((n,) * d)).nonzero())
+                return aux[np.all(aux[:, :-1] < aux[:, 1:], axis=1)]
+            return _triu_cust(self.vertices_.shape[0], dim+1)
 
     @staticmethod
     def _get_ixs_batch(batch, dim=1):
@@ -466,7 +512,6 @@ class DowkerComplex(BaseEstimator):
                 for simplex, filtration in self.complex_.get_filtration()
             ])
         ])
-        print(f"{len(distances) = }")
         datum_ixs = defaultdict(list)
         datum_ix = len(fig_combined.data)
         for dist_ix, dist in enumerate(distances):
