@@ -8,6 +8,7 @@ import plotly.graph_objects as gobj
 from shapely.geometry import MultiPoint
 from gudhi import SimplexTree
 from datasets_custom.plotting import plot_point_cloud, plot_persistences
+from joblib import Parallel, delayed
 
 
 class DowkerComplex(BaseEstimator):
@@ -25,6 +26,9 @@ class DowkerComplex(BaseEstimator):
         max_filtration (float, optional): The maximum filtration value of
             simplices used when creating the Dowker simplicial complex.
             Defaults to `np.inf`.
+        chunks (int, optional): The number of chunks that the set of simplices
+            will be split up into in order to avoid memory overflow. If set to
+            1, no chunking will be performed. Defaults to 1.
 
     Attributes:
         vertices_ (numpy.ndarray of shape (n_vertices, dim)): NumPy-array
@@ -62,11 +66,13 @@ class DowkerComplex(BaseEstimator):
         self,
         metric="euclidean",
         max_dimension=2,
-        max_filtration=np.inf
+        max_filtration=np.inf,
+        chunks=1
     ):
         self.metric = metric
         self.max_dimension = max_dimension
         self.max_filtration = max_filtration
+        self.chunks = chunks
 
     def fit(
         self,
@@ -132,10 +138,31 @@ class DowkerComplex(BaseEstimator):
 
     def _get_simplices(self, dim, max_filtration):
         spx_ixs = self._get_spx_ixs(dim=dim)
-        filtrations = np.min(
-            np.max(self._dm_[:, spx_ixs], axis=2),
-            axis=0
-        )
+        if self.chunks > 1:
+            spx_ixs = np.array_split(
+                spx_ixs, self.chunks, axis=0
+            )
+
+            def _helper(chunk):
+                return np.min(
+                    np.max(self._dm_[:, chunk], axis=2),
+                    axis=0
+                )
+            filtrations = Parallel(
+                n_jobs=-1,
+                return_as="list",
+                backend="threading"
+            )(
+                delayed(_helper)(spx_ixs_chunk)
+                for spx_ixs_chunk in spx_ixs
+            )
+            filtrations = np.concatenate(filtrations)
+            spx_ixs = np.concatenate(spx_ixs)
+        else:
+            filtrations = np.min(
+                np.max(self._dm_[:, spx_ixs], axis=2),
+                axis=0
+            )
         spx_ixs_with_filtrations = np.concatenate(
             [
                 spx_ixs,
