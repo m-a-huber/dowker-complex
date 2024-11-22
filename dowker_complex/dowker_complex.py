@@ -1,14 +1,15 @@
 import warnings
 from collections import defaultdict
-from sklearn.base import BaseEstimator
-from sklearn.utils.validation import check_is_fitted
-from sklearn.metrics import pairwise_distances
+
 import numpy as np
 import plotly.graph_objects as gobj
-from shapely.geometry import MultiPoint
+from datasets_custom.plotting import plot_persistences, plot_point_cloud
 from gudhi import SimplexTree
-from datasets_custom.plotting import plot_point_cloud, plot_persistences
 from joblib import Parallel, delayed
+from shapely.geometry import MultiPoint
+from sklearn.base import BaseEstimator
+from sklearn.metrics import pairwise_distances
+from sklearn.utils.validation import check_is_fitted
 
 
 class DowkerComplex(BaseEstimator):
@@ -62,12 +63,13 @@ class DowkerComplex(BaseEstimator):
 
     Examples:
     """
+
     def __init__(
         self,
         metric="euclidean",
         max_dimension=2,
         max_filtration=np.inf,
-        chunks=1
+        chunks=1,
     ):
         self.metric = metric
         self.max_dimension = max_dimension
@@ -79,7 +81,7 @@ class DowkerComplex(BaseEstimator):
         vertices,
         witnesses,
         compute_persistence=True,
-        **persistence_kwargs
+        **persistence_kwargs,
     ):
         """Method that fits an DowkerComplex instance to a pair of point
         clouds consisting of vertices and witnesses.
@@ -102,10 +104,9 @@ class DowkerComplex(BaseEstimator):
         self._labels_vertices_ = np.zeros(len(self.vertices_))
         self._labels_witnesses_ = -np.ones(len(self.witnesses_))
         self._points_ = np.concatenate([self.vertices_, self.witnesses_])
-        self._labels_ = np.concatenate([
-            self._labels_vertices_,
-            self._labels_witnesses_
-        ])
+        self._labels_ = np.concatenate(
+            [self._labels_vertices_, self._labels_witnesses_]
+        )
         self.complex_ = self._get_complex()
         if compute_persistence:
             persistence = self.complex_.persistence(**persistence_kwargs)
@@ -114,61 +115,41 @@ class DowkerComplex(BaseEstimator):
 
     def _get_complex(self):
         self._dm_ = pairwise_distances(
-            self.witnesses_,
-            self.vertices_,
-            metric=self.metric
+            self.witnesses_, self.vertices_, metric=self.metric
         )
         simplices_list = [
             self._get_simplices(dim=dim, max_filtration=self.max_filtration)
-            for dim in range(self.max_dimension+1)
+            for dim in range(self.max_dimension + 1)
         ]
         self.simplices_ = {
             dim: {
                 "vertex_array": np.transpose(simplices[:, :-1]).astype(int),
-                "filtrations": simplices[:, -1]
+                "filtrations": simplices[:, -1],
             }
             for dim, simplices in enumerate(simplices_list)
         }
         simplex_tree_ = SimplexTree()
-        for dim in range(self.max_dimension+1):
-            simplex_tree_.insert_batch(
-                **self.simplices_[dim]
-            )
+        for dim in range(self.max_dimension + 1):
+            simplex_tree_.insert_batch(**self.simplices_[dim])
         return simplex_tree_
 
     def _get_simplices(self, dim, max_filtration):
         spx_ixs = self._get_spx_ixs(dim=dim)
         if self.chunks > 1:
-            spx_ixs = np.array_split(
-                spx_ixs, self.chunks, axis=0
-            )
+            spx_ixs = np.array_split(spx_ixs, self.chunks, axis=0)
 
             def _helper(chunk):
-                return np.min(
-                    np.max(self._dm_[:, chunk], axis=2),
-                    axis=0
-                )
+                return np.min(np.max(self._dm_[:, chunk], axis=2), axis=0)
+
             filtrations = Parallel(
-                n_jobs=-1,
-                return_as="list",
-                backend="threading"
-            )(
-                delayed(_helper)(spx_ixs_chunk)
-                for spx_ixs_chunk in spx_ixs
-            )
+                n_jobs=-1, return_as="list", backend="threading"
+            )(delayed(_helper)(spx_ixs_chunk) for spx_ixs_chunk in spx_ixs)
             filtrations = np.concatenate(filtrations)
             spx_ixs = np.concatenate(spx_ixs)
         else:
-            filtrations = np.min(
-                np.max(self._dm_[:, spx_ixs], axis=2),
-                axis=0
-            )
+            filtrations = np.min(np.max(self._dm_[:, spx_ixs], axis=2), axis=0)
         spx_ixs_with_filtrations = np.concatenate(
-            [
-                spx_ixs,
-                filtrations.reshape(-1, 1)
-            ],
-            axis=1
+            [spx_ixs, filtrations.reshape(-1, 1)], axis=1
         )
         if max_filtration < np.inf:
             mask = spx_ixs_with_filtrations[:, -1] <= max_filtration
@@ -178,18 +159,20 @@ class DowkerComplex(BaseEstimator):
 
     def _get_spx_ixs(self, dim):
         if self.vertices_.shape[0] == 0:
-            return np.array([]).reshape(0, dim+1)
+            return np.array([]).reshape(0, dim + 1)
         if dim == 0:
             return np.arange(self.vertices_.shape[0]).reshape(-1, 1)
         elif dim == 1:
             return np.transpose(np.triu_indices(self.vertices_.shape[0], 1))
         else:
+
             def _triu_cust(n, d):
                 if d == 1:
                     return np.arange(n).reshape(-1, 1)
                 aux = np.transpose(np.triu(np.ones((n,) * d)).nonzero())
                 return aux[np.all(aux[:, :-1] < aux[:, 1:], axis=1)]
-            return _triu_cust(self.vertices_.shape[0], dim+1)
+
+            return _triu_cust(self.vertices_.shape[0], dim + 1)
 
     @staticmethod
     def _format_persistence(persistence):
@@ -198,14 +181,19 @@ class DowkerComplex(BaseEstimator):
         else:
             max_hom_dim = max([dim for dim, gen in persistence])
         persistence_formatted = [
-            np.array([
-                gen
-                for dim, gen in persistence if dim == i
-            ]).reshape(-1, 2)
-            for i in range(max_hom_dim+1)
+            np.array([gen for dim, gen in persistence if dim == i]).reshape(
+                -1, 2
+            )
+            for i in range(max_hom_dim + 1)
         ]
         persistence_sorted = [
-            hom[np.argsort(np.diff(hom, axis=1).reshape(-1,))]
+            hom[
+                np.argsort(
+                    np.diff(hom, axis=1).reshape(
+                        -1,
+                    )
+                )
+            ]
             for hom in persistence_formatted
         ]
         return persistence_sorted
@@ -223,17 +211,11 @@ class DowkerComplex(BaseEstimator):
                 persistence diagram.
         """
         check_is_fitted(self, attributes="persistence_")
-        fig = plot_persistences(
-            [self.persistence_],
-            **plotting_kwargs
-        )
+        fig = plot_persistences([self.persistence_], **plotting_kwargs)
         return fig
 
     def plot_points(
-        self,
-        indicate_witnesses=True,
-        use_colors=True,
-        **plotting_kwargs
+        self, indicate_witnesses=True, use_colors=True, **plotting_kwargs
     ):
         """Method plotting the vertices and witnesses underlying a fitted
         instance of DowkerComplex. Works for point clouds up to dimension
@@ -265,7 +247,7 @@ class DowkerComplex(BaseEstimator):
             indicate_outliers=indicate_witnesses,
             indicate_labels=use_colors,
             colorscale="wong",
-            **plotting_kwargs
+            **plotting_kwargs,
         )
 
     def plot_skeleton(
@@ -274,7 +256,7 @@ class DowkerComplex(BaseEstimator):
         threshold=np.inf,
         indicate_witnesses=True,
         use_colors=True,
-        **plotting_kwargs
+        **plotting_kwargs,
     ):
         """Method plotting the k-skeleton of the Dowker complex underlying a
         fitted instance of DowkerComplex. Works for values of k and point
@@ -304,9 +286,7 @@ class DowkerComplex(BaseEstimator):
                 "for data sets of dimension at most 2."
             )
         if k not in {0, 1, 2}:
-            raise Exception(
-                "The value of `k` must be either 0, 1 or 2."
-            )
+            raise Exception("The value of `k` must be either 0, 1 or 2.")
         check_is_fitted(self, attributes="complex_")
         complex = self.complex_.copy()
         complex.prune_above_filtration(threshold)
@@ -315,20 +295,22 @@ class DowkerComplex(BaseEstimator):
             for simplex, filtration in complex.get_skeleton(dimension=1)
             if len(simplex) == 1
         ]
-        points = np.concatenate([
-            self.vertices_[vertex_ixs].reshape(-1, 2),
-            self.witnesses_
-        ])
-        labels = np.concatenate([
-            self._labels_vertices_[vertex_ixs],
-            self._labels_witnesses_
-        ])
+        points = np.concatenate(
+            [self.vertices_[vertex_ixs].reshape(-1, 2), self.witnesses_]
+        )
+        labels = np.concatenate(
+            [self._labels_vertices_[vertex_ixs], self._labels_witnesses_]
+        )
         if k >= 1:
-            lines = self._points_[[
-                simplex
-                for simplex, filtration in complex.get_skeleton(dimension=1)
-                if len(simplex) == 2
-            ]].reshape(-1, 2, 2)
+            lines = self._points_[
+                [
+                    simplex
+                    for simplex, filtration in complex.get_skeleton(
+                        dimension=1
+                    )
+                    if len(simplex) == 2
+                ]
+            ].reshape(-1, 2, 2)
         fig = plot_point_cloud(
             points,
             labels=labels,
@@ -336,7 +318,7 @@ class DowkerComplex(BaseEstimator):
             indicate_labels=use_colors,
             colorscale="wong",
             lines=lines if k >= 1 else None,
-            **plotting_kwargs
+            **plotting_kwargs,
         )
         if k == 2:
             two_simplices_with_filtration = [
@@ -344,10 +326,13 @@ class DowkerComplex(BaseEstimator):
                 for spx, filtration in complex.get_skeleton(dimension=2)
                 if len(spx) >= 3
             ]
-            two_simplices = np.array([
-                self.vertices_[two_simplex]
-                for two_simplex, filtration in two_simplices_with_filtration
-            ])
+            two_simplices = np.array(
+                [
+                    self.vertices_[two_simplex]
+                    for two_simplex, filtration
+                    in two_simplices_with_filtration
+                ]
+            )
             for two_simplex in two_simplices:
                 x = two_simplex.T[0]
                 y = two_simplex.T[1]
@@ -364,28 +349,19 @@ class DowkerComplex(BaseEstimator):
                     fill="toself",
                     opacity=0.3,
                     fillcolor="grey",
-                    line_color="grey"
+                    line_color="grey",
                 )
                 fig.add_trace(polygon)
-        fig_ref = plot_point_cloud(
-            self._points_
-        )
+        fig_ref = plot_point_cloud(self._points_)
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore")
             xrange = fig_ref.full_figure_for_development().layout.xaxis.range
             yrange = fig_ref.full_figure_for_development().layout.yaxis.range
-        fig.update_layout(
-            xaxis_range=xrange,
-            yaxis_range=yrange
-        )
+        fig.update_layout(xaxis_range=xrange, yaxis_range=yrange)
         return fig
 
     def plot_interactive_skeleton(
-        self,
-        k=2,
-        indicate_witnesses=True,
-        use_colors=True,
-        **plotting_kwargs
+        self, k=2, indicate_witnesses=True, use_colors=True, **plotting_kwargs
     ):
         """Method plotting an interactive version of the k-skeleton of the
         Dowker complex underlying a fitted instance of DowkerComplex. Works
@@ -413,23 +389,26 @@ class DowkerComplex(BaseEstimator):
                 "for data sets of dimension at most 2."
             )
         if k not in {0, 1, 2}:
-            raise Exception(
-                "The value of `k` must be either 0, 1 or 2."
-            )
+            raise Exception("The value of `k` must be either 0, 1 or 2.")
         fig_combined = self.plot_skeleton(
             threshold=0,
             k=0,
             indicate_witnesses=indicate_witnesses,
             use_colors=use_colors,
-            **plotting_kwargs
+            **plotting_kwargs,
         )
-        distances = np.concatenate([
-            [0],
-            np.unique([
-                filtration
-                for simplex, filtration in self.complex_.get_filtration()
-            ])
-        ])
+        distances = np.concatenate(
+            [
+                [0],
+                np.unique(
+                    [
+                        filtration
+                        for simplex, filtration
+                        in self.complex_.get_filtration()
+                    ]
+                ),
+            ]
+        )
         datum_ixs = defaultdict(list)
         datum_ix = len(fig_combined.data)
         for dist_ix, dist in enumerate(distances):
@@ -438,7 +417,7 @@ class DowkerComplex(BaseEstimator):
                 k=k,
                 indicate_witnesses=indicate_witnesses,
                 use_colors=use_colors,
-                **plotting_kwargs
+                **plotting_kwargs,
             )
             for datum in fig.data:
                 fig_combined.add_trace(datum)
@@ -451,18 +430,18 @@ class DowkerComplex(BaseEstimator):
                 args=[
                     {"visible": [False] * len(fig_combined.data)},
                 ],
-                label=str(np.round(distances[dist_ix], 6))
+                label=str(np.round(distances[dist_ix], 6)),
             )
             for ix in datum_ixs[dist_ix]:
                 step["args"][0]["visible"][ix] = True
             steps.append(step)
-        sliders = [dict(
-            active=0,
-            currentvalue={"prefix": "Threshold: "},
-            pad={"t": 50},
-            steps=steps
-        )]
-        fig_combined.update_layout(
-            sliders=sliders
-        )
+        sliders = [
+            dict(
+                active=0,
+                currentvalue={"prefix": "Threshold: "},
+                pad={"t": 50},
+                steps=steps,
+            )
+        ]
+        fig_combined.update_layout(sliders=sliders)
         return fig_combined
