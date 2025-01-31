@@ -1,0 +1,25 @@
+[project]
+name = "dowker-complex"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.10"
+dependencies = [
+    "datasets-custom",
+    "gudhi==3.9.0",
+    "joblib==1.4.2 ; python_full_version >= '3.8'",
+    "numpy==1.26.4",
+    "packaging==24.0 ; python_full_version >= '3.7'",
+    "pandas==2.2.2",
+    "plotly==5.22.0",
+    "python-dateutil==2.9.0.post0 ; python_full_version >= '2.7'",
+    "pytz==2024.1",
+    "scikit-learn==1.5.2",
+    "scipy==1.13.1 ; python_full_version >= '3.9'",
+    "six==1.16.0 ; python_full_version >= '2.7'",
+    "tenacity==8.3.0 ; python_full_version >= '3.8'",
+    "threadpoolctl==3.5.0 ; python_full_version >= '3.8'",
+    "tzdata==2024.1 ; python_full_version >= '2'",
+]
+
+[tool.uv.sources]
+datasets-custom = { path = "../datasets_custom" }
