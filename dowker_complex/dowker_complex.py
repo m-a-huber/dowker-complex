@@ -2,14 +2,19 @@ import warnings
 from collections import defaultdict
 
 import numpy as np
-import plotly.graph_objects as gobj
-from datasets_custom.plotting import plot_persistences, plot_point_cloud
-from gudhi import SimplexTree
-from joblib import Parallel, delayed
-from shapely.geometry import MultiPoint
-from sklearn.base import BaseEstimator
-from sklearn.metrics import pairwise_distances
-from sklearn.utils.validation import check_is_fitted
+import numpy.typing as npt
+import plotly.graph_objects as gobj  # type: ignore
+from datasets_custom.plotting import (  # type: ignore
+    plot_persistences,
+    plot_point_cloud,
+)
+from gudhi import SimplexTree  # type: ignore
+from joblib import Parallel, delayed  # type: ignore
+from shapely.geometry import MultiPoint  # type: ignore
+from sklearn.base import BaseEstimator  # type: ignore
+from sklearn.metrics import pairwise_distances  # type: ignore
+from sklearn.utils.validation import check_is_fitted  # type: ignore
+from typing_extensions import Self
 
 
 class DowkerComplex(BaseEstimator):
@@ -21,8 +26,8 @@ class DowkerComplex(BaseEstimator):
         metric (str, optional): The metric used to compute distance between
             data points. Must be one of the metrics listed in
             ``sklearn.metrics.pairwise.PAIRWISE_DISTANCE_FUNCTIONS``.
-            Defaults to "euclidean".
-        max_dimension(int, optional): The maximum dimension of simplices used
+            Defaults to `"euclidean"`.
+        max_dimension (int, optional): The maximum dimension of simplices used
             when creating the Dowker simplicial complex. Defaults to 2.
         max_filtration (float, optional): The maximum filtration value of
             simplices used when creating the Dowker simplicial complex.
@@ -60,17 +65,15 @@ class DowkerComplex(BaseEstimator):
             Comput. Topol., 2(1-2), 115–175.
         [2]: C. H. Dowker (1952). Homology Groups of Relations. Annals of
             Mathematics, 56(1), 84–95.
-
-    Examples:
     """
 
     def __init__(
         self,
-        metric="euclidean",
-        max_dimension=2,
-        max_filtration=np.inf,
-        chunks=1,
-    ):
+        metric: str = "euclidean",
+        max_dimension: int = 2,
+        max_filtration: float = np.inf,
+        chunks: int = 1,
+    ) -> None:
         self.metric = metric
         self.max_dimension = max_dimension
         self.max_filtration = max_filtration
@@ -78,11 +81,11 @@ class DowkerComplex(BaseEstimator):
 
     def fit(
         self,
-        vertices,
-        witnesses,
-        compute_persistence=True,
+        vertices: npt.NDArray,
+        witnesses: npt.NDArray,
+        compute_persistence: bool = True,
         **persistence_kwargs,
-    ):
+    ) -> Self:
         """Method that fits an DowkerComplex instance to a pair of point
         clouds consisting of vertices and witnesses.
 
@@ -113,7 +116,9 @@ class DowkerComplex(BaseEstimator):
             self.persistence_ = self._format_persistence(persistence)
         return self
 
-    def _get_complex(self):
+    def _get_complex(
+        self
+    ):
         self._dm_ = pairwise_distances(
             self.witnesses_, self.vertices_, metric=self.metric
         )
@@ -133,7 +138,11 @@ class DowkerComplex(BaseEstimator):
             simplex_tree_.insert_batch(**self.simplices_[dim])
         return simplex_tree_
 
-    def _get_simplices(self, dim, max_filtration):
+    def _get_simplices(
+        self,
+        dim,
+        max_filtration,
+    ):
         spx_ixs = self._get_spx_ixs(dim=dim)
         if self.chunks > 1:
             spx_ixs = np.array_split(spx_ixs, self.chunks, axis=0)
@@ -157,7 +166,10 @@ class DowkerComplex(BaseEstimator):
         else:
             return spx_ixs_with_filtrations
 
-    def _get_spx_ixs(self, dim):
+    def _get_spx_ixs(
+        self,
+        dim,
+    ):
         if self.vertices_.shape[0] == 0:
             return np.array([]).reshape(0, dim + 1)
         if dim == 0:
@@ -175,7 +187,9 @@ class DowkerComplex(BaseEstimator):
             return _triu_cust(self.vertices_.shape[0], dim + 1)
 
     @staticmethod
-    def _format_persistence(persistence):
+    def _format_persistence(
+        persistence,
+    ):
         if len(persistence) == 0:
             max_hom_dim = 0
         else:
@@ -198,7 +212,10 @@ class DowkerComplex(BaseEstimator):
         ]
         return persistence_sorted
 
-    def plot_persistence(self, **plotting_kwargs):
+    def plot_persistence(
+        self,
+        **plotting_kwargs,
+    ) -> gobj.Figure:
         """Method plotting the Dowker persistence. Underlying instance must be
         fitted and have the attribute `persistence_`.
 
@@ -215,8 +232,11 @@ class DowkerComplex(BaseEstimator):
         return fig
 
     def plot_points(
-        self, indicate_witnesses=True, use_colors=True, **plotting_kwargs
-    ):
+        self,
+        indicate_witnesses: bool = True,
+        use_colors: bool = True,
+        **plotting_kwargs,
+    ) -> gobj.Figure:
         """Method plotting the vertices and witnesses underlying a fitted
         instance of DowkerComplex. Works for point clouds up to dimension
         three only.
@@ -252,12 +272,12 @@ class DowkerComplex(BaseEstimator):
 
     def plot_skeleton(
         self,
-        k=2,
-        threshold=np.inf,
-        indicate_witnesses=True,
-        use_colors=True,
+        k: int = 2,
+        threshold: float = np.inf,
+        indicate_witnesses: bool = True,
+        use_colors: bool = True,
         **plotting_kwargs,
-    ):
+    ) -> gobj.Figure:
         """Method plotting the k-skeleton of the Dowker complex underlying a
         fitted instance of DowkerComplex. Works for values of k and point
         clouds of dimension up to and including 2.
@@ -361,8 +381,12 @@ class DowkerComplex(BaseEstimator):
         return fig
 
     def plot_interactive_skeleton(
-        self, k=2, indicate_witnesses=True, use_colors=True, **plotting_kwargs
-    ):
+        self,
+        k: int = 2,
+        indicate_witnesses: bool = True,
+        use_colors: bool = True,
+        **plotting_kwargs,
+    ) -> gobj.Figure:
         """Method plotting an interactive version of the k-skeleton of the
         Dowker complex underlying a fitted instance of DowkerComplex. Works
         for values of k and point clouds of dimension up to and including 2.
@@ -433,7 +457,7 @@ class DowkerComplex(BaseEstimator):
                 label=str(np.round(distances[dist_ix], 6)),
             )
             for ix in datum_ixs[dist_ix]:
-                step["args"][0]["visible"][ix] = True
+                step["args"][0]["visible"][ix] = True  # type: ignore
             steps.append(step)
         sliders = [
             dict(
