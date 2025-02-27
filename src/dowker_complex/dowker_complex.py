@@ -6,7 +6,6 @@ import numpy as np
 import numpy.typing as npt
 import plotly.graph_objects as gobj  # type: ignore
 from gudhi import SimplexTree  # type: ignore
-from joblib import Parallel, delayed  # type: ignore
 from shapely.geometry import MultiPoint  # type: ignore
 from sklearn.base import BaseEstimator, TransformerMixin  # type: ignore
 from sklearn.metrics import pairwise_distances  # type: ignore
@@ -31,9 +30,6 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
         max_filtration (float, optional): The maximum filtration value of
             simplices used when creating the Dowker simplicial complex.
             Defaults to `np.inf`.
-        chunks (int, optional): The number of chunks that the set of simplices
-            will be split up into in order to avoid memory overflow. If set to
-            1, no chunking will be performed. Defaults to 1.
 
     Attributes:
         vertices_ (numpy.ndarray of shape (n_vertices, dim)): NumPy-array
@@ -68,7 +64,7 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
 
     def __init__(
         self,
-        max_dimension: int = 2,  # TODO: adjust to 1
+        max_dimension: int = 1,  # this is max hom dim
         max_filtration: float = np.inf,
         coeff: int = 2,
         metric: str = "euclidean",
@@ -76,7 +72,6 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
         collapse_edges: bool = False,
         n_threads: int = 1,
         verbose: bool = False,
-        chunks: int = 1,
     ) -> None:
         self.max_dimension = max_dimension
         self.max_filtration = max_filtration
@@ -86,7 +81,6 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
         self.collapse_edges = collapse_edges
         self.n_threads = n_threads
         self.verbose = verbose
-        self.chunks = chunks
 
     def vprint(
         self,
@@ -158,11 +152,11 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
         self
     ):
         self._dm_ = pairwise_distances(
-            self.witnesses_, self.vertices_, metric=self.metric
+            self.vertices_, self.witnesses_, metric=self.metric
         )
         simplices_list = [
             self._get_simplices(dim=dim, max_filtration=self.max_filtration)
-            for dim in range(self.max_dimension + 1)
+            for dim in range(self.max_dimension + 2)
         ]
         self.simplices_ = {
             dim: {
@@ -172,7 +166,7 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
             for dim, simplices in enumerate(simplices_list)
         }
         simplex_tree_ = SimplexTree()
-        for dim in range(self.max_dimension + 1):
+        for dim in range(self.max_dimension + 2):
             simplex_tree_.insert_batch(**self.simplices_[dim])
         return simplex_tree_
 
@@ -182,19 +176,7 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
         max_filtration,
     ):
         spx_ixs = self._get_spx_ixs(dim=dim)
-        if self.chunks > 1:
-            spx_ixs = np.array_split(spx_ixs, self.chunks, axis=0)
-
-            def _helper(chunk):
-                return np.min(np.max(self._dm_[:, chunk], axis=2), axis=0)
-
-            filtrations = Parallel(
-                n_jobs=-1, return_as="list", backend="threading"
-            )(delayed(_helper)(spx_ixs_chunk) for spx_ixs_chunk in spx_ixs)
-            filtrations = np.concatenate(filtrations)
-            spx_ixs = np.concatenate(spx_ixs)
-        else:
-            filtrations = np.min(np.max(self._dm_[:, spx_ixs], axis=2), axis=0)
+        filtrations = np.min(np.max(self._dm_[spx_ixs, :], axis=1), axis=1)
         spx_ixs_with_filtrations = np.concatenate(
             [spx_ixs, filtrations.reshape(-1, 1)], axis=1
         )
@@ -215,17 +197,15 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
         elif dim == 1:
             return np.transpose(np.triu_indices(self.vertices_.shape[0], 1))
         else:
-
             def _triu_cust(n, d):
-                if d == 1:
+                if d == 0:
                     return np.arange(n).reshape(-1, 1)
-                aux = np.transpose(np.triu(np.ones((n,) * d)).nonzero())
+                aux = np.transpose(np.triu(np.ones((n,) * (d + 1))).nonzero())
                 return aux[np.all(aux[:, :-1] < aux[:, 1:], axis=1)]
+            return _triu_cust(self.vertices_.shape[0], dim)
 
-            return _triu_cust(self.vertices_.shape[0], dim + 1)
-
-    @staticmethod
     def _format_persistence(
+        self,
         persistence,
     ):
         if len(persistence) == 0:
@@ -248,6 +228,8 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
             ]
             for hom in persistence_formatted
         ]
+        while len(persistence_sorted) < self.max_dimension + 1:
+            persistence_sorted.append(np.empty(shape=(0, 2)))
         return persistence_sorted
 
     def plot_persistence(
