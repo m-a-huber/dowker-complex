@@ -1,2 +1,10 @@
+# Python-generated files
 __pycache__/
-uv.lock
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
