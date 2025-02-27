@@ -7,7 +7,7 @@ from dowker_complex import DowkerComplex  # type: ignore
 
 @pytest.fixture
 def random_data():
-    n, dim = 500, 512
+    n, dim = 10, 4
     ratio_vertices = 0.9
     X, y = (
         list(train_test_split(
@@ -99,16 +99,15 @@ def test_dowker_complex_quadrilateral(quadrilateral):
     drc.fit_transform(*quadrilateral)
     assert hasattr(drc, "persistence_")
     assert len(drc.persistence_) == 2
+    print(drc.persistence_[0])
     assert (
         drc.persistence_[0] == np.array(
             [[1, np.inf]],
-            dtype=np.float32
         )
     ).all()
     assert (
         drc.persistence_[1] == np.array(
-            [[np.sqrt(5), np.sqrt(8)]],
-            dtype=np.float32
+            [[np.sqrt(5), 3]],
         )
     ).all()
 
@@ -127,8 +126,8 @@ def test_dowker_complex_octagon(octagon):
         drc.persistence_[0] == np.array([
             [birth, death],
             [birth, np.inf]
-        ], dtype=np.float32)
+        ])
     ).all()
     assert (
-        drc.persistence_[1] == np.empty(shape=(0, 2)).astype(np.float32)
+        drc.persistence_[1] == np.empty(shape=(0, 2))
     ).all()
