@@ -4,7 +4,6 @@ version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.10"
 dependencies = [
-    "datasets-custom",
     "gudhi==3.9.0",
     "joblib==1.4.2 ; python_full_version >= '3.8'",
     "numpy==1.26.4",
@@ -20,6 +19,3 @@ dependencies = [
     "threadpoolctl==3.5.0 ; python_full_version >= '3.8'",
     "tzdata==2024.1 ; python_full_version >= '2'",
 ]
-
-[tool.uv.sources]
-datasets-custom = { path = "../datasets_custom" }

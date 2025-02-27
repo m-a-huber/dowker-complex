@@ -4,10 +4,6 @@ from collections import defaultdict
 import numpy as np
 import numpy.typing as npt
 import plotly.graph_objects as gobj  # type: ignore
-from datasets_custom.plotting import (  # type: ignore
-    plot_persistences,
-    plot_point_cloud,
-)
 from gudhi import SimplexTree  # type: ignore
 from joblib import Parallel, delayed  # type: ignore
 from shapely.geometry import MultiPoint  # type: ignore
@@ -15,6 +11,9 @@ from sklearn.base import BaseEstimator  # type: ignore
 from sklearn.metrics import pairwise_distances  # type: ignore
 from sklearn.utils.validation import check_is_fitted  # type: ignore
 from typing_extensions import Self
+
+from .plotting.persistence_plotting import plot_persistences  # type: ignore
+from .plotting.point_cloud_plotting import plot_point_cloud  # type: ignore
 
 
 class DowkerComplex(BaseEstimator):
