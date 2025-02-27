@@ -1,5 +1,6 @@
 import warnings
 from collections import defaultdict
+from typing import Optional
 
 import numpy as np
 import numpy.typing as npt
@@ -7,16 +8,15 @@ import plotly.graph_objects as gobj  # type: ignore
 from gudhi import SimplexTree  # type: ignore
 from joblib import Parallel, delayed  # type: ignore
 from shapely.geometry import MultiPoint  # type: ignore
-from sklearn.base import BaseEstimator  # type: ignore
+from sklearn.base import BaseEstimator, TransformerMixin  # type: ignore
 from sklearn.metrics import pairwise_distances  # type: ignore
 from sklearn.utils.validation import check_is_fitted  # type: ignore
-from typing_extensions import Self
 
 from .plotting.persistence_plotting import plot_persistences  # type: ignore
 from .plotting.point_cloud_plotting import plot_point_cloud  # type: ignore
 
 
-class DowkerComplex(BaseEstimator):
+class DowkerComplex(TransformerMixin, BaseEstimator):
     """This class implements the Dowker persistent homology introduced in [1].
     This, in turn, is a generalization of the Dowker complex introduced in [2]
     to the setting of persistent homology.
@@ -68,52 +68,91 @@ class DowkerComplex(BaseEstimator):
 
     def __init__(
         self,
-        metric: str = "euclidean",
-        max_dimension: int = 2,
+        max_dimension: int = 2,  # TODO: adjust to 1
         max_filtration: float = np.inf,
+        coeff: int = 2,
+        metric: str = "euclidean",
+        metric_params: dict = dict(),
+        collapse_edges: bool = False,
+        n_threads: int = 1,
+        verbose: bool = False,
         chunks: int = 1,
     ) -> None:
-        self.metric = metric
         self.max_dimension = max_dimension
         self.max_filtration = max_filtration
+        self.coeff = coeff
+        self.metric = metric
+        self.metric_params = metric_params
+        self.collapse_edges = collapse_edges
+        self.n_threads = n_threads
+        self.verbose = verbose
         self.chunks = chunks
 
-    def fit(
+    def vprint(
         self,
-        vertices: npt.NDArray,
-        witnesses: npt.NDArray,
-        compute_persistence: bool = True,
-        **persistence_kwargs,
-    ) -> Self:
-        """Method that fits an DowkerComplex instance to a pair of point
-        clouds consisting of vertices and witnesses.
+        s: str,
+    ) -> None:
+        if self.verbose:
+            print(s)
+        else:
+            pass
+        return
+
+    def fit_transform(
+        self,
+        X: list[npt.NDArray],
+        y: Optional[None] = None,
+    ) -> list[npt.NDArray]:
+        """Method that fits a `DowkerComplex`-instance to a pair of point
+        clouds consisting of vertices and witnesses by constructing the
+        required simplical complex and computing the persistent homology of the
+        associated Dowker-Rips complex.
 
         Args:
-            vertices (numpy.ndarray of shape (n_vertices, dim)): NumPy-array
-                containing the vertices.
-            witnesses (numpy.ndarray of shape (n_witnesses, dim)): NumPy-array
-                containing the witnesses.
-            compute_persistence (bool, optional): Whether or not persistent
-                homology should be computed, as opposed to computing the
-                Dowker simplicial complex only. Defaults to True.
+            X (list[numpy.ndarray]): List containing the NumPy-arrays of
+                vertices and witnesses, in this order.
+            y (None, optional): Not used, present here for API consistency with
+                scikit-learn.
 
         Returns:
-            :class:`dowker_complex.DowkerComplex`: Fitted instance of
-                DowkerComplex.
+            list[numpy.ndarray]: The persistent homology computed from the
+                Drips simplicial complex. The format of this data is a list of
+                NumPy-arrays of shape `(n_generators, 2)`, where the i-th entry
+                of the list is an array containing the birth and death times of
+                the homological generators in dimension i-1. In particular, the
+                list starts with 0-dimensional homology and contains
+                information from consecutive homological dimensions.
         """
+        vertices, witnesses = X
+        if vertices.shape[1] != witnesses.shape[1]:
+            raise ValueError(
+                "The vertices and witnesses should be of the same "
+                f"dimensionality; received dim(vertices)={vertices.shape[1]} "
+                f"and dim(witnesses)={witnesses.shape[1]}."
+            )
         self.vertices_ = vertices
         self.witnesses_ = witnesses
+        self.vprint(
+            "Complex has (n_vertices, n_witnesses) = "
+            f"{(len(self.vertices_), len(self.witnesses_))}."
+        )
         self._labels_vertices_ = np.zeros(len(self.vertices_))
         self._labels_witnesses_ = -np.ones(len(self.witnesses_))
         self._points_ = np.concatenate([self.vertices_, self.witnesses_])
         self._labels_ = np.concatenate(
             [self._labels_vertices_, self._labels_witnesses_]
         )
+        self.vprint("Getting simplicial complex...")
         self.complex_ = self._get_complex()
-        if compute_persistence:
-            persistence = self.complex_.persistence(**persistence_kwargs)
-            self.persistence_ = self._format_persistence(persistence)
-        return self
+        self.vprint("Done getting simplicial complex.")
+        self.vprint("Computing persistent homology...")
+        self.persistence_ = self._format_persistence(
+            self.complex_.persistence(
+                homology_coeff_field=self.coeff,
+            )
+        )
+        self.vprint("Done computing persistent homology.")
+        return self.persistence_
 
     def _get_complex(
         self
@@ -215,19 +254,28 @@ class DowkerComplex(BaseEstimator):
         self,
         **plotting_kwargs,
     ) -> gobj.Figure:
-        """Method plotting the Dowker persistence. Underlying instance must be
-        fitted and have the attribute `persistence_`.
+        """Method plotting the persistent homology of a Dowker-Rips complex.
+        Underlying instance of `DripsComplex` must be fitted and have the
+        attribute `persistence_`.
 
         Args:
-            plotting_kwargs (optional): Arguments passed to the function
-                `datasets_custom.persistence_plotting.plot_persistences`.
+            plotting_kwargs (optional): Keyword arguments passed to the
+                function `plotting.persistence_plotting.plot_persistences`,
+                such as `marker_size`.
 
         Returns:
             :class:`plotly.graph_objs._figure.Figure`: A plot of the
                 persistence diagram.
         """
-        check_is_fitted(self, attributes="persistence_")
-        fig = plot_persistences([self.persistence_], **plotting_kwargs)
+        if not hasattr(self, "persistence_"):
+            raise AttributeError(
+                "This instance does not have the attribute `persistence_`. "
+                "Run `fit_transform` before plotting."
+            )
+        fig = plot_persistences(
+            [self.persistence_],
+            **plotting_kwargs,
+        )
         return fig
 
     def plot_points(
@@ -236,25 +284,30 @@ class DowkerComplex(BaseEstimator):
         use_colors: bool = True,
         **plotting_kwargs,
     ) -> gobj.Figure:
-        """Method plotting the vertices and witnesses underlying a fitted
-        instance of DowkerComplex. Works for point clouds up to dimension
-        three only.
+        """Method plotting the vertices and witnesses of a Dowker-Rips complex.
+        Underlying instance of `DripsComplex` must be fitted and have the
+        attributes `vertices_` and `witnesses_`. Works for point clouds up to
+        dimension three only.
 
         Args:
-            indicate_witnesses (bool, optional): Whether or not to use a
-                distinguished marker to indicate the witness points.
-                Defaults to True.
+            indicate_witnesses (bool, optional): Whether or not to indicate the
+                witness points by a cross as opposed to a dot.
+                Defaults to `True`.
             use_colors (bool, optional): Whether or not to color the vertices
-                and witnesses in different colors. Defaults to True.
-            plotting_kwargs (optional): Arguments passed to the function
-                `datasets_custom.utils.plotting.plot_point_cloud`, such as
-                `marker_size` and `colorscale`.
+                and witnesses in different colors. Defaults to `True`.
+            plotting_kwargs (optional): Keyword arguments passed to the
+                function `plotting.point_cloud_plotting.plot_point_cloud`, such
+                as `marker_size` and `colorscale`.
 
         Returns:
             :class:`plotly.graph_objs._figure.Figure`: A plot of the
                 vertex and witness point clouds.
         """
-        check_is_fitted(self, attributes=["vertices_", "witnesses_"])
+        if not hasattr(self, "vertices_") and hasattr(self, "witnesses_"):
+            raise AttributeError(
+                "This instance does not have the attributes `vertices_` and "
+                "`witnesses_`. Run `fit_transform` before plotting."
+            )
         if self._points_.shape[1] not in {1, 2, 3}:
             raise Exception(
                 "Plotting is supported only for data "
