@@ -197,12 +197,12 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
         elif dim == 1:
             return np.transpose(np.triu_indices(self.vertices_.shape[0], 1))
         else:
-            def _triu_cust(n, d):
-                if d == 0:
-                    return np.arange(n).reshape(-1, 1)
-                aux = np.transpose(np.triu(np.ones((n,) * (d + 1))).nonzero())
-                return aux[np.all(aux[:, :-1] < aux[:, 1:], axis=1)]
-            return _triu_cust(self.vertices_.shape[0], dim)
+            tmp = np.transpose(
+                np.triu(
+                    np.ones((self.vertices_.shape[0],) * (dim + 1))
+                ).nonzero()
+            )
+            return tmp[np.all(tmp[:, :-1] < tmp[:, 1:], axis=1)]
 
     def _format_persistence(
         self,
