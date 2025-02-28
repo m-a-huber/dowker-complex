@@ -7,7 +7,7 @@ from dowker_complex import DowkerComplex  # type: ignore
 
 @pytest.fixture
 def random_data():
-    n, dim = 10, 4
+    n, dim = 100, 4
     ratio_vertices = 0.9
     X, y = (
         list(train_test_split(
@@ -93,7 +93,8 @@ def test_dowker_complex_plotting_3d(random_data):
 
 def test_dowker_complex_quadrilateral(quadrilateral):
     """
-    Check whether `DowkerComplex` returns correct result on small quadrilateral.
+    Check whether `DowkerComplex` returns correct result on small
+    quadrilateral.
     """
     drc = DowkerComplex()
     drc.fit_transform(*quadrilateral)
