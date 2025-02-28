@@ -6,6 +6,7 @@ import numpy as np
 import numpy.typing as npt
 import plotly.graph_objects as gobj  # type: ignore
 from gudhi import SimplexTree  # type: ignore
+from numba import jit, prange  # type: ignore
 from shapely.geometry import MultiPoint  # type: ignore
 from sklearn.base import BaseEstimator, TransformerMixin  # type: ignore
 from sklearn.metrics import pairwise_distances  # type: ignore
@@ -16,20 +17,33 @@ from .plotting.point_cloud_plotting import plot_point_cloud  # type: ignore
 
 
 class DowkerComplex(TransformerMixin, BaseEstimator):
-    """This class implements the Dowker persistent homology introduced in [1].
-    This, in turn, is a generalization of the Dowker complex introduced in [2]
-    to the setting of persistent homology.
+    """Class implementing the Dowker persistent homology associated to a
+    point cloud whose elements are separated into two classes. This is
+    introduced in [1] and is a generalization of the Dowker complex introduced
+    in [2] to the setting of persistent homology. The data points on which the
+    underlying simplicial complex is constructed are referred to as "vertices",
+    while the other ones are referred to as "witnesses".
 
     Parameters:
+        max_dimension (int, optional): The maximum homology dimension computed.
+            Will compute all dimensions lower than or equal to this value.
+            Defaults to `1`.
+        max_filtration (float, optional): The Maximum value of the Drips
+            filtration parameter. If `np.inf`, the entire filtration is
+            computed. Defaults to `np.inf`.
+        coeff (int, optional): The field coefficient used in the computation of
+            homoology. Defaults to `2`.
         metric (str, optional): The metric used to compute distance between
             data points. Must be one of the metrics listed in
             ``sklearn.metrics.pairwise.PAIRWISE_DISTANCE_FUNCTIONS``.
             Defaults to `"euclidean"`.
-        max_dimension (int, optional): The maximum dimension of simplices used
-            when creating the Dowker simplicial complex. Defaults to 2.
-        max_filtration (float, optional): The maximum filtration value of
-            simplices used when creating the Dowker simplicial complex.
-            Defaults to `np.inf`.
+        metric_params (dict, optional): Additional parameters to be passed to
+            the distance function. Defaults to `dict()`.
+        swap (bool, optional): Whether or not to potentially swap the roles of
+            vertices and witnesses to compute the less expensive variant of
+            persistent homology. Defaults to `False`.
+        verbose (bool, optional): Whether or not to display information such as
+            computation progress. Defaults to `False`.
 
     Attributes:
         vertices_ (numpy.ndarray of shape (n_vertices, dim)): NumPy-array
@@ -37,18 +51,17 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
         witnesses_ (numpy.ndarray of shape (n_witnesses, dim)): NumPy-array
             containing the witnesses.
         simplices_ (dict of int: dict of str: numpy.ndarray): Dictionary whose
-            keys are the integers 0, ..., `max_dimension`, and whose values
+            keys are the integers 0, ..., `max_dimension + 1`, and whose values
             are dictionaries containing the arguments to
             `gudhi.SimplexTree.insert_batch`. That is, each of these
             dictionaries has `"vertex_array"` and `"filtrations"` as keys, and
             NumPy-arrays of shape (dim + 1, n_simplices) and (n_simplices,),
             respectively, as its values.
-        complex_ (:class:`~gudhi.SimplexTree`): The Dowker simplicial complex
-            constructed from the vertices and witnesses, given as an instance
-            of :class:`~gudhi.SimplexTree`.
+        complex_ (gudhi.SimplexTree): The Dowker simplicial complex constructed
+            from the vertices and witnesses.
         persistence_ (list[numpy.ndarray]): The persistent homology computed
-            from the Dowker simplicial complex. The format of this data is a
-            list of NumPy-arrays of shape (n_generators, 2), where the i-th
+            from the Drips simplicial complex. The format of this data is a
+            list of NumPy-arrays of shape `(n_generators, 2)`, where the i-th
             entry of the list is an array containing the birth and death times
             of the homological generators in dimension i-1. In particular, the
             list starts with 0-dimensional homology and contains information
@@ -64,13 +77,12 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
 
     def __init__(
         self,
-        max_dimension: int = 1,  # this is max hom dim
+        max_dimension: int = 1,
         max_filtration: float = np.inf,
         coeff: int = 2,
         metric: str = "euclidean",
         metric_params: dict = dict(),
-        collapse_edges: bool = False,
-        n_threads: int = 1,
+        swap: bool = False,
         verbose: bool = False,
     ) -> None:
         self.max_dimension = max_dimension
@@ -78,8 +90,7 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
         self.coeff = coeff
         self.metric = metric
         self.metric_params = metric_params
-        self.collapse_edges = collapse_edges
-        self.n_threads = n_threads
+        self.swap = swap
         self.verbose = verbose
 
     def vprint(
@@ -124,6 +135,9 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
                 f"dimensionality; received dim(vertices)={vertices.shape[1]} "
                 f"and dim(witnesses)={witnesses.shape[1]}."
             )
+        if self.swap and len(vertices) > len(witnesses):
+            vertices, witnesses = witnesses, vertices
+            self.vprint("Swapped roles of vertices and witnesses.")
         self.vertices_ = vertices
         self.witnesses_ = witnesses
         self.vprint(
@@ -136,9 +150,7 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
         self._labels_ = np.concatenate(
             [self._labels_vertices_, self._labels_witnesses_]
         )
-        self.vprint("Getting simplicial complex...")
         self.complex_ = self._get_complex()
-        self.vprint("Done getting simplicial complex.")
         self.vprint("Computing persistent homology...")
         self.persistence_ = self._format_persistence(
             self.complex_.persistence(
@@ -154,55 +166,77 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
         self._dm_ = pairwise_distances(
             self.vertices_, self.witnesses_, metric=self.metric
         )
-        simplices_list = [
-            self._get_simplices(dim=dim, max_filtration=self.max_filtration)
-            for dim in range(self.max_dimension + 2)
-        ]
+        self.vprint("Getting simplices...")
         self.simplices_ = {
             dim: {
-                "vertex_array": np.transpose(simplices[:, :-1]).astype(int),
-                "filtrations": simplices[:, -1],
+                "vertex_array": simplices[:-1].astype(int),
+                "filtrations": simplices[-1],
             }
-            for dim, simplices in enumerate(simplices_list)
+            for dim, simplices in enumerate(
+                self._get_simplices()
+            )
         }
+        self.vprint("Done getting simplices.")
         simplex_tree_ = SimplexTree()
+        self.vprint("Constructing simplex tree...")
         for dim in range(self.max_dimension + 2):
             simplex_tree_.insert_batch(**self.simplices_[dim])
+        self.vprint("Done constructing simplex tree...")
         return simplex_tree_
 
     def _get_simplices(
         self,
-        dim,
-        max_filtration,
     ):
-        spx_ixs = self._get_spx_ixs(dim=dim)
-        filtrations = np.min(np.max(self._dm_[spx_ixs, :], axis=1), axis=1)
-        spx_ixs_with_filtrations = np.concatenate(
-            [spx_ixs, filtrations.reshape(-1, 1)], axis=1
-        )
-        if max_filtration < np.inf:
-            mask = spx_ixs_with_filtrations[:, -1] <= max_filtration
-            return spx_ixs_with_filtrations[mask]
-        else:
-            return spx_ixs_with_filtrations
+        @jit(nopython=True, parallel=True)
+        def _get_simplices_numba(dm):
+            def choose_2(n):
+                return n * (n - 1) // 2
 
-    def _get_spx_ixs(
-        self,
-        dim,
-    ):
-        if self.vertices_.shape[0] == 0:
-            return np.array([]).reshape(0, dim + 1)
-        if dim == 0:
-            return np.arange(self.vertices_.shape[0]).reshape(-1, 1)
-        elif dim == 1:
-            return np.transpose(np.triu_indices(self.vertices_.shape[0], 1))
-        else:
-            tmp = np.transpose(
-                np.triu(
-                    np.ones((self.vertices_.shape[0],) * (dim + 1))
-                ).nonzero()
+            def choose_3(n):
+                return n * (n - 1) * (n - 2) // 6
+            num_vertices = dm.shape[0]
+            num_edges = choose_2(num_vertices)
+            num_faces = choose_3(num_vertices)
+            arr_vertices = np.empty((2, num_vertices))
+            arr_edges = np.empty((3, num_edges))
+            arr_faces = np.empty((4, num_faces))
+            for vertex_ix in prange(num_vertices):
+                arr_vertices[0, vertex_ix] = vertex_ix
+                arr_vertices[1, vertex_ix] = np.min(dm[vertex_ix])
+                for vertex_jx in range(vertex_ix + 1, num_vertices):
+                    edge_ix = choose_2(num_vertices) - 1 - (
+                        choose_2(num_vertices - vertex_ix - 1)
+                        + num_vertices - vertex_jx - 1
+                    )
+                    arr_edges[0, edge_ix] = vertex_ix
+                    arr_edges[1, edge_ix] = vertex_jx
+                    arr_edges[2, edge_ix] = np.min(
+                        np.maximum(dm[vertex_ix], dm[vertex_jx])
+                    )
+                    for vertex_kx in range(vertex_jx + 1, num_vertices):
+                        face_ix = choose_3(num_vertices) - 1 - (
+                            choose_3(num_vertices - vertex_ix - 1)
+                            + choose_2(num_vertices - vertex_jx - 1)
+                            + num_vertices - vertex_kx - 1
+                        )
+                        arr_faces[0, face_ix] = vertex_ix
+                        arr_faces[1, face_ix] = vertex_jx
+                        arr_faces[2, face_ix] = vertex_kx
+                        arr_faces[3, face_ix] = np.min(
+                            np.maximum(
+                                np.maximum(dm[vertex_ix], dm[vertex_jx]),
+                                dm[vertex_kx]
+                            )
+                        )
+            return arr_vertices, arr_edges, arr_faces
+        res = _get_simplices_numba(self._dm_)
+        if self.max_filtration < np.inf:
+            return (
+                arr[:, arr[-1, :] <= self.max_filtration]
+                for arr in res
             )
-            return tmp[np.all(tmp[:, :-1] < tmp[:, 1:], axis=1)]
+        else:
+            return res
 
     def _format_persistence(
         self,
@@ -246,8 +280,7 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
                 such as `marker_size`.
 
         Returns:
-            :class:`plotly.graph_objs._figure.Figure`: A plot of the
-                persistence diagram.
+            `plotly.graph_objs.Figure`: A plot of the persistence diagram.
         """
         if not hasattr(self, "persistence_"):
             raise AttributeError(
@@ -282,8 +315,8 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
                 as `marker_size` and `colorscale`.
 
         Returns:
-            :class:`plotly.graph_objs._figure.Figure`: A plot of the
-                vertex and witness point clouds.
+            `plotly.graph_objs.Figure`: A plot of the vertex and witness point
+                clouds.
         """
         if not hasattr(self, "vertices_") and hasattr(self, "witnesses_"):
             raise AttributeError(
@@ -331,8 +364,7 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
                 `line_width` and `colorscale`.
 
         Returns:
-            :class:`plotly.graph_objs._figure.Figure`: A plot of the
-                k-skeleton.
+            `plotly._figure.Figure`: A plot of the k-skeleton.
         """
         if self._points_.shape[1] not in {1, 2}:
             raise Exception(
@@ -438,8 +470,7 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
                 `line_width` and `colorscale`.
 
         Returns:
-            :class:`plotly.graph_objs._figure.Figure`: An interactive plot of
-                the k-skeleton.
+            `plotly.graph_objs.Figure`: An interactive plot of the k-skeleton.
         """
         if self._points_.shape[1] not in {1, 2}:
             raise Exception(
