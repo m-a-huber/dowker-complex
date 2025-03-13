@@ -11,6 +11,7 @@ from shapely.geometry import MultiPoint  # type: ignore
 from sklearn.base import BaseEstimator, TransformerMixin  # type: ignore
 from sklearn.metrics import pairwise_distances  # type: ignore
 from sklearn.utils.validation import check_is_fitted  # type: ignore
+from typing_extensions import Self
 
 from .plotting.persistence_plotting import plot_persistences  # type: ignore
 from .plotting.point_cloud_plotting import plot_point_cloud  # type: ignore
@@ -28,7 +29,7 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
         max_dimension (int, optional): The maximum homology dimension computed.
             Will compute all dimensions lower than or equal to this value.
             Defaults to `1`.
-        max_filtration (float, optional): The Maximum value of the Drips
+        max_filtration (float, optional): The Maximum value of the Dowker
             filtration parameter. If `np.inf`, the entire filtration is
             computed. Defaults to `np.inf`.
         coeff (int, optional): The field coefficient used in the computation of
@@ -60,7 +61,7 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
         complex_ (gudhi.SimplexTree): The Dowker simplicial complex constructed
             from the vertices and witnesses.
         persistence_ (list[numpy.ndarray]): The persistent homology computed
-            from the Drips simplicial complex. The format of this data is a
+            from the Dowker simplicial complex. The format of this data is a
             list of NumPy-arrays of shape `(n_generators, 2)`, where the i-th
             entry of the list is an array containing the birth and death times
             of the homological generators in dimension i-1. In particular, the
@@ -103,15 +104,14 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
             pass
         return
 
-    def fit_transform(
+    def fit(
         self,
         X: list[npt.NDArray],
         y: Optional[None] = None,
-    ) -> list[npt.NDArray]:
+    ) -> Self:
         """Method that fits a `DowkerComplex`-instance to a pair of point
         clouds consisting of vertices and witnesses by constructing the
-        required simplical complex and computing the persistent homology of the
-        associated Dowker-Rips complex.
+        associated Dowker complex, as an instance of `gudhi.SimplexTree`.
 
         Args:
             X (list[numpy.ndarray]): List containing the NumPy-arrays of
@@ -120,13 +120,7 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
                 scikit-learn.
 
         Returns:
-            list[numpy.ndarray]: The persistent homology computed from the
-                Drips simplicial complex. The format of this data is a list of
-                NumPy-arrays of shape `(n_generators, 2)`, where the i-th entry
-                of the list is an array containing the birth and death times of
-                the homological generators in dimension i-1. In particular, the
-                list starts with 0-dimensional homology and contains
-                information from consecutive homological dimensions.
+            self (DowkerComplex): The fitted instance of `DowkerComplex`.
         """
         vertices, witnesses = X
         if vertices.shape[1] != witnesses.shape[1]:
@@ -151,6 +145,33 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
             [self._labels_vertices_, self._labels_witnesses_]
         )
         self.complex_ = self._get_complex()
+        return self
+
+    def transform(
+        self,
+        X: list[npt.NDArray],
+        y: Optional[None] = None,
+    ) -> list[npt.NDArray]:
+        """Method that transforms a `DowkerComplex`-instance fitted to a pair
+        of point clouds consisting of vertices and witnesses by computing the
+        persistent homology of the associated Dowker complex.
+
+        Args:
+            X (list[numpy.ndarray]): List containing the NumPy-arrays of
+                vertices and witnesses, in this order.
+            y (None, optional): Not used, present here for API consistency with
+                scikit-learn.
+
+        Returns:
+            list[numpy.ndarray]: The persistent homology computed from the
+                Dowker simplicial complex. The format of this data is a list of
+                NumPy-arrays of shape `(n_generators, 2)`, where the i-th entry
+                of the list is an array containing the birth and death times of
+                the homological generators in dimension i-1. In particular, the
+                list starts with 0-dimensional homology and contains
+                information from consecutive homological dimensions.
+        """
+        check_is_fitted(self, attributes="complex_")
         self.vprint("Computing persistent homology...")
         self.persistence_ = self._format_persistence(
             self.complex_.persistence(
@@ -270,8 +291,8 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
         self,
         **plotting_kwargs,
     ) -> gobj.Figure:
-        """Method plotting the persistent homology of a Dowker-Rips complex.
-        Underlying instance of `DripsComplex` must be fitted and have the
+        """Method plotting the persistent homology of a Dowker complex.
+        Underlying instance of `DowkerComplex` must be fitted and have the
         attribute `persistence_`.
 
         Args:
@@ -299,8 +320,8 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
         use_colors: bool = True,
         **plotting_kwargs,
     ) -> gobj.Figure:
-        """Method plotting the vertices and witnesses of a Dowker-Rips complex.
-        Underlying instance of `DripsComplex` must be fitted and have the
+        """Method plotting the vertices and witnesses of a Dowker complex.
+        Underlying instance of `DowkerComplex` must be fitted and have the
         attributes `vertices_` and `witnesses_`. Works for point clouds up to
         dimension three only.
 
