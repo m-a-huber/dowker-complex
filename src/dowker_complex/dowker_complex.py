@@ -144,7 +144,10 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
         self._labels_ = np.concatenate(
             [self._labels_vertices_, self._labels_witnesses_]
         )
-        self.complex_ = self._get_complex()
+        if min(len(self.vertices_), len(self.witnesses_)) == 0:
+            self.complex_ = SimplexTree()
+        else:
+            self.complex_ = self._get_complex()
         return self
 
     def transform(

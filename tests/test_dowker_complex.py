@@ -65,6 +65,48 @@ def test_dowker_complex(random_data):
     assert hasattr(drc, "persistence_")
 
 
+def test_dowker_complex_empty_vertices():
+    """
+    Check whether `DowkerComplex` runs for empty set of vertices.
+    """
+    X, y = [np.random.randn(0, 512), np.random.randn(10, 512)], None
+    drc = DowkerComplex()
+    drc.fit_transform(X, y)
+    assert hasattr(drc, "persistence_")
+    assert len(drc.persistence_) == 2
+    assert (
+        drc.persistence_[0] == np.empty(
+            (0, 2)
+        )
+    ).all()
+    assert (
+        drc.persistence_[1] == np.empty(
+            (0, 2)
+        )
+    ).all()
+
+
+def test_dowker_complex_empty_witnesses():
+    """
+    Check whether `DowkerComplex` runs for empty set of witnesses.
+    """
+    X, y = [np.random.randn(10, 512), np.random.randn(0, 512)], None
+    drc = DowkerComplex()
+    drc.fit_transform(X, y)
+    assert hasattr(drc, "persistence_")
+    assert len(drc.persistence_) == 2
+    assert (
+        drc.persistence_[0] == np.empty(
+            (0, 2)
+        )
+    ).all()
+    assert (
+        drc.persistence_[1] == np.empty(
+            (0, 2)
+        )
+    ).all()
+
+
 def test_dowker_complex_plotting_2d(random_data):
     """
     Check whether `DowkerComplex` plots 2D data.
