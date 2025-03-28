@@ -57,14 +57,26 @@ def octagon():
 
 def test_dowker_complex(random_data):
     """
-    Check whether `DowkerComplex` runs at all and plots for all admissible
-    choices of `max_dimension`.
+    Check whether `DowkerComplex` runs at all for all admissible choices of
+    `max_dimension` and produces complex of correct dimension.
     """
     X, y = random_data
     for max_dimension in [0, 1, 2]:
         drc = DowkerComplex(max_dimension=max_dimension)
         drc.fit_transform(X, y)
         assert hasattr(drc, "persistence_")
+        assert hasattr(drc, "complex_")
+        assert drc.complex_.dimension() == max_dimension + 1
+
+
+def test_dowker_complex_cosine(random_data):
+    """
+    Check whether `DowkerComplex` runs on random data with non-default metric.
+    """
+    X, y = random_data
+    drc = DowkerComplex(metric="cosine")
+    drc.fit_transform(X, y)
+    assert hasattr(drc, "persistence_")
 
 
 def test_dowker_complex_empty_vertices():

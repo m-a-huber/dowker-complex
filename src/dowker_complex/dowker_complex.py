@@ -218,7 +218,7 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
         self,
     ):
         @jit(nopython=True, parallel=True)
-        def _get_simplices_numba(dm):
+        def _get_simplices_numba(dm, max_dimension):
             def choose_2(n):
                 return n * (n - 1) // 2
 
@@ -248,45 +248,73 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
                     arr_edges[2, edge_ix] = np.min(
                         np.maximum(dm[vertex_ix], dm[vertex_jx])
                     )
-                    for vertex_kx in range(vertex_jx + 1, num_vertices):
-                        face_ix = choose_3(num_vertices) - 1 - (
-                            choose_3(num_vertices - vertex_ix - 1)
-                            + choose_2(num_vertices - vertex_jx - 1)
-                            + num_vertices - vertex_kx - 1
-                        )
-                        arr_faces[0, face_ix] = vertex_ix
-                        arr_faces[1, face_ix] = vertex_jx
-                        arr_faces[2, face_ix] = vertex_kx
-                        arr_faces[3, face_ix] = np.min(
-                            np.maximum(
-                                np.maximum(dm[vertex_ix], dm[vertex_jx]),
-                                dm[vertex_kx]
+                    if max_dimension > 0:
+                        for vertex_kx in range(vertex_jx + 1, num_vertices):
+                            face_ix = choose_3(num_vertices) - 1 - (
+                                choose_3(num_vertices - vertex_ix - 1)
+                                + choose_2(num_vertices - vertex_jx - 1)
+                                + num_vertices - vertex_kx - 1
                             )
-                        )
-                        for vertex_lx in range(vertex_kx + 1, num_vertices):
-                            three_cell_ix = choose_4(num_vertices) - 1 - (
-                                choose_4(num_vertices - vertex_ix - 1)
-                                + choose_3(num_vertices - vertex_jx - 1)
-                                + choose_2(num_vertices - vertex_kx - 1)
-                                + num_vertices - vertex_lx - 1
-                            )
-                            arr_three_cells[0, three_cell_ix] = vertex_ix
-                            arr_three_cells[1, three_cell_ix] = vertex_jx
-                            arr_three_cells[2, three_cell_ix] = vertex_kx
-                            arr_three_cells[3, three_cell_ix] = vertex_lx
-                            arr_three_cells[4, three_cell_ix] = np.min(
+                            arr_faces[0, face_ix] = vertex_ix
+                            arr_faces[1, face_ix] = vertex_jx
+                            arr_faces[2, face_ix] = vertex_kx
+                            arr_faces[3, face_ix] = np.min(
                                 np.maximum(
-                                    np.maximum(
-                                        np.maximum(
-                                            dm[vertex_ix], dm[vertex_jx]
-                                        ),
-                                        dm[vertex_kx],
-                                    ),
-                                    dm[vertex_lx],
+                                    np.maximum(dm[vertex_ix], dm[vertex_jx]),
+                                    dm[vertex_kx]
                                 )
                             )
+                            if max_dimension > 1:
+                                for vertex_lx in range(
+                                    vertex_kx + 1, num_vertices
+                                ):
+                                    three_cell_ix = (
+                                        choose_4(num_vertices)
+                                        - 1
+                                        - (
+                                            choose_4(
+                                                num_vertices - vertex_ix - 1
+                                            )
+                                            + choose_3(
+                                                num_vertices - vertex_jx - 1
+                                            )
+                                            + choose_2(
+                                                num_vertices - vertex_kx - 1
+                                            )
+                                            + num_vertices
+                                            - vertex_lx
+                                            - 1
+                                        )
+                                    )
+                                    arr_three_cells[0, three_cell_ix] = (
+                                        vertex_ix
+                                    )
+                                    arr_three_cells[1, three_cell_ix] = (
+                                        vertex_jx
+                                    )
+                                    arr_three_cells[2, three_cell_ix] = (
+                                        vertex_kx
+                                    )
+                                    arr_three_cells[3, three_cell_ix] = (
+                                        vertex_lx
+                                    )
+                                    arr_three_cells[4, three_cell_ix] = np.min(
+                                        np.maximum(
+                                            np.maximum(
+                                                np.maximum(
+                                                    dm[vertex_ix],
+                                                    dm[vertex_jx],
+                                                ),
+                                                dm[vertex_kx],
+                                            ),
+                                            dm[vertex_lx],
+                                        )
+                                    )
             return arr_vertices, arr_edges, arr_faces, arr_three_cells
-        res = _get_simplices_numba(self._dm_)
+
+        res = _get_simplices_numba(self._dm_, self.max_dimension)[
+            : self.max_dimension + 2
+        ]
         if self.max_filtration < np.inf:
             return (
                 arr[:, arr[-1, :] <= self.max_filtration]
