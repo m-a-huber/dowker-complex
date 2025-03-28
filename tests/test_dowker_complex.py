@@ -57,12 +57,14 @@ def octagon():
 
 def test_dowker_complex(random_data):
     """
-    Check whether `DowkerComplex` runs at all and plots.
+    Check whether `DowkerComplex` runs at all and plots for all admissible
+    choices of `max_dimension`.
     """
     X, y = random_data
-    drc = DowkerComplex()
-    drc.fit_transform(X, y)
-    assert hasattr(drc, "persistence_")
+    for max_dimension in [0, 1, 2]:
+        drc = DowkerComplex(max_dimension=max_dimension)
+        drc.fit_transform(X, y)
+        assert hasattr(drc, "persistence_")
 
 
 def test_dowker_complex_empty_vertices():
@@ -142,7 +144,6 @@ def test_dowker_complex_quadrilateral(quadrilateral):
     drc.fit_transform(*quadrilateral)
     assert hasattr(drc, "persistence_")
     assert len(drc.persistence_) == 2
-    print(drc.persistence_[0])
     assert (
         drc.persistence_[0] == np.array(
             [[1, np.inf]],
