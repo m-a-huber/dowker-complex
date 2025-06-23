@@ -72,9 +72,9 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
     References:
         [1]: Samir Chowdhury, & Facundo Mémoli (2018). A functorial Dowker
             theorem and persistent homology of asymmetric networks. J. Appl.
-            Comput. Topol., 2(1-2), 115–175.
+            Comput. Topol., 2(1-2), 115-175.
         [2]: C. H. Dowker (1952). Homology Groups of Relations. Annals of
-            Mathematics, 56(1), 84–95.
+            Mathematics, 56(1), 84-95.
     """
 
     def __init__(
@@ -101,8 +101,6 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
     ) -> None:
         if self.verbose:
             print(s)
-        else:
-            pass
         return
 
     def fit(

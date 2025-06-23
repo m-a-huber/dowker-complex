@@ -326,16 +326,16 @@ def plot_persistences(
             if neginfinity_val is not None
         )
     if bandwidths is not None:
-        _bandwidths = [
+        bandwidths_ = [
             bandwidth
             if bandwidth is not None else 0
             for bandwidth in bandwidths
         ]
         min_yval_display = np.min(
-            [min_yval_display, min_xval_display + np.min(_bandwidths)]
+            [min_yval_display, min_xval_display + np.min(bandwidths_)]
         )
         max_yval_display = np.max(
-            [max_yval_display, max_xval_display + np.max(_bandwidths)]
+            [max_yval_display, max_xval_display + np.max(bandwidths_)]
         )
         yparameter_range = max_yval_display - min_yval_display
         extra_space_factor = 0.05
@@ -346,7 +346,7 @@ def plot_persistences(
         ):
             posinfinity_val_display = np.max([
                 posinfinity_val_display,
-                max_xval_display + np.max(_bandwidths)
+                max_xval_display + np.max(bandwidths_)
             ])
             max_yval_display += extra_yspace
         if any(
@@ -355,7 +355,7 @@ def plot_persistences(
         ):
             neginfinity_val_display = np.min([
                 neginfinity_val_display,
-                min_xval_display + np.min(_bandwidths)
+                min_xval_display + np.min(bandwidths_)
             ])
             min_yval_display -= extra_yspace
 

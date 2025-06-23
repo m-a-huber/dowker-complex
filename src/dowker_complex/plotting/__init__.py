@@ -10,10 +10,10 @@ from .point_cloud_plotting import (
 )
 
 __all__ = [
-    "plot_persistences",
-    "plot_barcodes",
-    "format_gudhi_persistence",
-    "plot_point_cloud",
     "cloud_from_fcn_2_dim",
     "cloud_from_fcn_3_dim",
+    "format_gudhi_persistence",
+    "plot_barcodes",
+    "plot_persistences",
+    "plot_point_cloud",
 ]
