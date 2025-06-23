@@ -9,9 +9,10 @@ from dowker_complex import DowkerComplex  # type: ignore
 def random_data():
     n, dim = 100, 4
     ratio_vertices = 0.9
+    rng = np.random.default_rng()
     X, y = (
         list(train_test_split(
-            np.random.randn(n, dim), train_size=ratio_vertices)
+            rng.standard_normal(size=(n, dim)), train_size=ratio_vertices)
         ),
         None,
     )
@@ -83,7 +84,14 @@ def test_dowker_complex_empty_vertices():
     """
     Check whether `DowkerComplex` runs for empty set of vertices.
     """
-    X, y = [np.random.randn(0, 512), np.random.randn(10, 512)], None
+    rng = np.random.default_rng()
+    X, y = (
+        [
+            rng.standard_normal(size=(0, 512)),
+            rng.standard_normal(size=(10, 512)),
+        ],
+        None,
+    )
     drc = DowkerComplex()
     drc.fit_transform(X, y)
     assert hasattr(drc, "persistence_")
@@ -104,7 +112,14 @@ def test_dowker_complex_empty_witnesses():
     """
     Check whether `DowkerComplex` runs for empty set of witnesses.
     """
-    X, y = [np.random.randn(10, 512), np.random.randn(0, 512)], None
+    rng = np.random.default_rng()
+    X, y = (
+        [
+            rng.standard_normal(size=(10, 512)),
+            rng.standard_normal(size=(0, 512)),
+        ],
+        None,
+    )
     drc = DowkerComplex()
     drc.fit_transform(X, y)
     assert hasattr(drc, "persistence_")
