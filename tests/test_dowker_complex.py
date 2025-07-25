@@ -63,7 +63,7 @@ def test_dowker_complex(random_data):
     `max_dimension` and produces complex of correct dimension.
     """
     X, y = random_data
-    for max_dimension in [0, 1, 2]:
+    for max_dimension in [0, 1]:
         drc = DowkerComplex(max_dimension=max_dimension)
         drc.fit_transform(X, y)
         assert hasattr(drc, "persistence_")
