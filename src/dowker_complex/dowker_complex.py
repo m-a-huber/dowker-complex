@@ -43,7 +43,7 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
             the distance function. Defaults to `dict()`.
         swap (bool, optional): Whether or not to potentially swap the roles of
             vertices and witnesses to compute the less expensive variant of
-            persistent homology. Defaults to `False`.
+            persistent homology. Defaults to `True`.
         verbose (bool, optional): Whether or not to display information such as
             computation progress. Defaults to `False`.
 
@@ -84,7 +84,7 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
         coeff: int = 2,
         metric: str = "euclidean",
         metric_params: dict = dict(),
-        swap: bool = False,
+        swap: bool = True,
         verbose: bool = False,
     ) -> None:
         self.max_dimension = max_dimension
