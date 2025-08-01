@@ -174,7 +174,7 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
         """
         check_is_fitted(self, attributes="complex_")
         self.vprint("Computing persistent homology...")
-        persistence_dim_max = self.complex_.dimension() <= self.max_dimension,
+        persistence_dim_max = self.complex_.dimension() <= self.max_dimension
         self.persistence_ = self._format_persistence(
             self.complex_.persistence(
                 homology_coeff_field=self.coeff,
