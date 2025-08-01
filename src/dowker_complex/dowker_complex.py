@@ -63,11 +63,11 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
             from the vertices and witnesses.
         persistence_ (list[numpy.ndarray]): The persistent homology computed
             from the Dowker simplicial complex. The format of this data is a
-            list of NumPy-arrays of shape `(n_generators, 2)`, where the i-th
-            entry of the list is an array containing the birth and death times
-            of the homological generators in dimension i-1. In particular, the
-            list starts with 0-dimensional homology and contains information
-            from consecutive homological dimensions.
+            list of NumPy-arrays of dtype float64 of shape `(n_generators, 2)`,
+            where the i-th entry of the list is an array containing the birth
+            and death times of the homological generators in dimension i-1. In
+            particular, the list starts with 0-dimensional homology and
+            contains information from consecutive homological dimensions.
 
     References:
         [1]: Samir Chowdhury, & Facundo Mémoli (2018). A functorial Dowker
@@ -158,7 +158,7 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
         self,
         X: list[npt.NDArray],
         y: Optional[None] = None,
-    ) -> list[npt.NDArray]:
+    ) -> list[npt.NDArray[np.float64]]:
         """Method that transforms a `DowkerComplex`-instance fitted to a pair
         of point clouds consisting of vertices and witnesses by computing the
         persistent homology of the associated Dowker complex.
@@ -172,17 +172,21 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
         Returns:
             list[numpy.ndarray]: The persistent homology computed from the
                 Dowker simplicial complex. The format of this data is a list of
-                NumPy-arrays of shape `(n_generators, 2)`, where the i-th entry
-                of the list is an array containing the birth and death times of
-                the homological generators in dimension i-1. In particular, the
-                list starts with 0-dimensional homology and contains
-                information from consecutive homological dimensions.
+                NumPy-arrays of dtype float64 and of shape `(n_generators, 2)`,
+                where the i-th entry of the list is an array containing the
+                birth and death times of the homological generators in
+                dimension i-1. In particular, the list starts with
+                0-dimensional homology and contains information from
+                consecutive homological dimensions.
         """
         check_is_fitted(self, attributes="complex_")
         self.vprint("Computing persistent homology...")
+        persistence_dim_max = self.complex_.dimension() <= self.max_dimension,
         self.persistence_ = self._format_persistence(
             self.complex_.persistence(
                 homology_coeff_field=self.coeff,
+                min_persistence=0.0,
+                persistence_dim_max=persistence_dim_max
             )
         )
         self.vprint("Done computing persistent homology.")
