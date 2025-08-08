@@ -27,7 +27,7 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
             filtration parameter. If `np.inf`, the entire filtration is
             computed. Defaults to `np.inf`.
         coeff (int, optional): The field coefficient used in the computation of
-            homoology. Defaults to `2`.
+            homology. Defaults to `2`.
         metric (str, optional): The metric used to compute distance between
             data points. Must be one of the metrics listed in
             ``sklearn.metrics.pairwise.PAIRWISE_DISTANCE_FUNCTIONS``.
