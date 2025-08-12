@@ -1,12 +1,14 @@
 [project]
 name = "dowker-complex"
 version = "0.1.0"
-description = "Add your description here"
+description = "Implementation of the Dowker-Rips complex."
 readme = "README.md"
 authors = [
     { name = "m-a-huber", email = "mariushuber2@gmail.com" }
 ]
 requires-python = ">=3.10"
+license = "AGPL-3.0"
+license-files = ["LICEN[CS]E*"]
 dependencies = [
     "gudhi>=3.11.0",
     "numba>=0.61.2",
@@ -28,3 +30,7 @@ dev = [
     "pytest>=8.4.1",
     "twine>=6.1.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/m-a-huber/dowker-complex"
+Issues = "https://github.com/m-a-huber/dowker-complex/issues"
