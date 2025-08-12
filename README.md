@@ -5,8 +5,8 @@ The complex is implemented as a class named `DowkerComplex` that largely follows
 
 __Example of running DowkerComplex__
 
-The following is an example of computing persistent homology of the filtered complex $`\left\{\mathrm{D}_{\varepsilon}(X,Y)\right\}_{\varepsilon\in\mathbb{R}^{+}}`$, that is, of the Dowker complex with relations $R_{\varepsilon}\subseteq X\times Y$ defined by $(x,y)\in R_{\varepsilon}$ iff $d(x,y)\leq\varepsilon$ for $\varepsilon\geq 0$, and where $X$ and $Y$ are subsets of $\mathbb{R}^{n}$ equipped with the Euclidean norm.
-In the following example, we refer to $X$ and $Y$ as vertices and witnesses, respectively.
+The following is an example of computing persistent homology of the filtered complex $`\left\{\mathrm{D}_{\varepsilon}(X,Y)\right\}_{\varepsilon\in\mathbb{R}^{+}}`$, that is, of the Dowker complex with relations $`R_{\varepsilon}\subseteq X\times Y`$ defined by $`(x,y)\in R_{\varepsilon}`$ iff $`d(x,y)\leq\varepsilon`$ for $`\varepsilon\geq 0`$, and where $`X`$ and $`Y`$ are subsets of $`\mathbb{R}^{n}`$ equipped with the Euclidean norm.
+In the following example, we refer to $`X`$ and $`Y`$ as vertices and witnesses, respectively.
 
 ```
 >>> from dowker_complex import DowkerComplex
@@ -35,7 +35,7 @@ In the following example, we refer to $X$ and $Y$ as vertices and witnesses, res
  array([[0.5035793 , 0.63405836]])]
 ```
 
-The output above is a list of arrays, where the $i$-th array contains (birth, death)-times of homological generators in dimension $i-1$.
+The output above is a list of arrays, where the $`i`$-th array contains (birth, death)-times of homological generators in dimension $`i-1`$.
 Validity of Dowker duality can be verified by swapping the roles of vertices as witnesses as follows.
 
 ```
