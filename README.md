@@ -18,8 +18,8 @@ In the following example, we refer to $`X`$ and $`Y`$ as vertices and witnesses,
         random_state=42,
     )
 >>> vertices, witnesses = X[y == 0], X[y == 1]
->>> drc = DowkerComplex()  # use default parameters
->>> persistence = drc.fit_transform([vertices, witnesses])
+>>> dc = DowkerComplex()  # use default parameters
+>>> persistence = dc.fit_transform([vertices, witnesses])
 >>> persistence
 [array([[0.39632083, 0.4189592 ],
         [0.17218397, 0.24239225],
@@ -57,6 +57,20 @@ These parameters, among other things, allow the user to specify persistence-rela
 
 __Installation and requirements__
 
+The package can be installed via `pip` by running `pip install -U dowker-complex`.
+
 Required Python dependencies are specified in `pyproject.toml`.
 Provided that `uv` is installed, these dependencies can be installed by running `uv pip install -r pyproject.toml`.
 The environment specified in `uv.lock` can be recreated by running `uv sync`.
+
+---
+
+__Installing from PyPI for `uv` users__
+
+```
+$ uv init
+$ uv add dowker-complex
+$ uv run python
+>>> from dowker-complex import DowkerComplex
+>>> ...
+```
