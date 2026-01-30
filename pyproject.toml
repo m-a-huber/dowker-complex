@@ -1,6 +1,6 @@
 [project]
 name = "dowker-complex"
-version = "0.1.2"
+version = "1.0.0"
 description = "Implementation of the Dowker complex."
 readme = "README.md"
 authors = [
