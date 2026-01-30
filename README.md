@@ -9,7 +9,7 @@ The following is an example of computing persistent homology of the filtered com
 In the following example, we refer to $`X`$ and $`Y`$ as vertices and witnesses, respectively.
 
 ```
->>> from dowker_complex import DowkerComplex
+>>> from dc import DowkerComplex
 >>> from sklearn.datasets import make_blobs
 >>> X, y = make_blobs(
         n_samples=200,
@@ -71,6 +71,6 @@ __Installing from PyPI for `uv` users__
 $ uv init
 $ uv add dowker-complex
 $ uv run python
->>> from dowker-complex import DowkerComplex
+>>> from dc import DowkerComplex
 >>> ...
 ```

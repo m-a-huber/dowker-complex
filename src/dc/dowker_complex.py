@@ -2,11 +2,11 @@ from typing import Optional
 
 import numpy as np
 import numpy.typing as npt
-from gudhi import SimplexTree  # type: ignore
-from numba import jit, prange  # type: ignore
-from sklearn.base import BaseEstimator, TransformerMixin  # type: ignore
-from sklearn.metrics import pairwise_distances  # type: ignore
-from sklearn.utils.validation import check_is_fitted  # type: ignore
+from gudhi import SimplexTree  # ty:ignore[unresolved-import]
+from numba import jit, prange
+from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.metrics import pairwise_distances
+from sklearn.utils.validation import check_is_fitted
 from typing_extensions import Self
 
 
@@ -33,7 +33,7 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
             ``sklearn.metrics.pairwise.PAIRWISE_DISTANCE_FUNCTIONS``.
             Defaults to `"euclidean"`.
         metric_params (dict, optional): Additional parameters to be passed to
-            the distance function. Defaults to `dict()`.
+            the distance function. Defaults to `None` (empty dict).
         swap (bool, optional): Whether or not to potentially swap the roles of
             vertices and witnesses to compute the less expensive variant of
             persistent homology. Defaults to `True`.
@@ -76,7 +76,7 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
         max_filtration: float = np.inf,
         coeff: int = 2,
         metric: str = "euclidean",
-        metric_params: dict = dict(),
+        metric_params: Optional[dict] = None,
         swap: bool = True,
         verbose: bool = False,
     ) -> None:
@@ -99,7 +99,7 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
     def fit(
         self,
         X: list[npt.NDArray],
-        y: Optional[None] = None,
+        y: None = None,  # noqa: ARG002
     ) -> Self:
         """Method that fits a `DowkerComplex`-instance to a pair of point
         clouds consisting of vertices and witnesses by constructing the
@@ -119,12 +119,23 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
                 f"The value for `max_dimension` is `{self.max_dimension}`, "
                 "but only values less than or equal to `1` are supported."
             )
+        if len(X) != 2:
+            raise ValueError(
+                f"X must contain exactly 2 arrays (vertices and witnesses); "
+                f"received {len(X)} arrays"
+            )
         vertices, witnesses = X
+        if vertices.ndim != 2 or witnesses.ndim != 2:
+            raise ValueError(
+                "Vertices and witnesses must be 2D arrays; "
+                f"received vertices.ndim={vertices.ndim} and "
+                f"witnesses.ndim={witnesses.ndim}"
+            )
         if vertices.shape[1] != witnesses.shape[1]:
             raise ValueError(
-                "The vertices and witnesses should be of the same "
+                "The vertices and witnesses must be of the same "
                 f"dimensionality; received dim(vertices)={vertices.shape[1]} "
-                f"and dim(witnesses)={witnesses.shape[1]}."
+                f"and dim(witnesses)={witnesses.shape[1]}"
             )
         if self.swap and len(vertices) > len(witnesses):
             vertices, witnesses = witnesses, vertices
@@ -149,18 +160,15 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
 
     def transform(
         self,
-        X: list[npt.NDArray],
-        y: Optional[None] = None,
+        X: Optional[list[npt.NDArray]] = None,  # noqa: ARG002
     ) -> list[npt.NDArray[np.float64]]:
         """Method that transforms a `DowkerComplex`-instance fitted to a pair
         of point clouds consisting of vertices and witnesses by computing the
         persistent homology of the associated Dowker complex.
 
         Args:
-            X (list[numpy.ndarray]): List containing the NumPy-arrays of
-                vertices and witnesses, in this order.
-            y (None, optional): Not used, present here for API consistency with
-                scikit-learn.
+            X (list[numpy.ndarray], optional): Not used; fitted data is used.
+                Present for API consistency with scikit-learn.
 
         Returns:
             list[numpy.ndarray]: The persistent homology computed from the
@@ -173,23 +181,35 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
                 consecutive homological dimensions.
         """
         check_is_fitted(self, attributes="complex_")
-        self.vprint("Computing persistent homology...")
-        persistence_dim_max = self.complex_.dimension() <= self.max_dimension
-        self.persistence_ = self._format_persistence(
-            self.complex_.persistence(
-                homology_coeff_field=self.coeff,
-                min_persistence=0.0,
-                persistence_dim_max=persistence_dim_max
+        if min(len(self.vertices_), len(self.witnesses_)) == 0:
+            self.persistence_ = [
+                np.empty((0, 2), dtype=np.float64)
+                for _ in range(self.max_dimension + 1)
+            ]
+        else:
+            self.vprint("Computing persistent homology...")
+            persistence_dim_max = (
+                self.complex_.dimension() <= self.max_dimension
             )
-        )
-        self.vprint("Done computing persistent homology.")
+            self.persistence_ = self._format_persistence(
+                self.complex_.persistence(
+                    homology_coeff_field=self.coeff,
+                    min_persistence=0.0,
+                    persistence_dim_max=persistence_dim_max,
+                )
+            )
+            self.vprint("Done computing persistent homology.")
         return self.persistence_
 
-    def _get_complex(
-        self
-    ):
+    def _get_complex(self):
+        self.metric_params = (
+            self.metric_params if self.metric_params is not None else dict()
+        )
         self._dm_ = pairwise_distances(
-            self.vertices_, self.witnesses_, metric=self.metric
+            self.vertices_,
+            self.witnesses_,
+            metric=self.metric,
+            **self.metric_params,
         )
         self.vprint("Getting simplices...")
         self.simplices_ = {
@@ -197,9 +217,7 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
                 "vertex_array": simplices[:-1].astype(int),
                 "filtrations": simplices[-1],
             }
-            for dim, simplices in enumerate(
-                self._get_simplices()
-            )
+            for dim, simplices in enumerate(self._get_simplices())
         }
         self.vprint("Done getting simplices.")
         simplex_tree_ = SimplexTree()
@@ -219,19 +237,26 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
 
             def choose_3(n):
                 return n * (n - 1) * (n - 2) // 6
+
             num_vertices = dm.shape[0]
             num_edges = choose_2(num_vertices)
             num_faces = choose_3(num_vertices)
             arr_vertices = np.empty((2, num_vertices))
             arr_edges = np.empty((3, num_edges))
             arr_faces = np.empty((4, num_faces))
-            for vertex_ix in prange(num_vertices):
+            for vertex_ix in prange(num_vertices):  # ty:ignore[not-iterable]
                 arr_vertices[0, vertex_ix] = vertex_ix
                 arr_vertices[1, vertex_ix] = np.min(dm[vertex_ix])
                 for vertex_jx in range(vertex_ix + 1, num_vertices):
-                    edge_ix = choose_2(num_vertices) - 1 - (
-                        choose_2(num_vertices - vertex_ix - 1)
-                        + num_vertices - vertex_jx - 1
+                    edge_ix = (
+                        choose_2(num_vertices)
+                        - 1
+                        - (
+                            choose_2(num_vertices - vertex_ix - 1)
+                            + num_vertices
+                            - vertex_jx
+                            - 1
+                        )
                     )
                     arr_edges[0, edge_ix] = vertex_ix
                     arr_edges[1, edge_ix] = vertex_jx
@@ -240,10 +265,16 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
                     )
                     if max_dimension > 0:
                         for vertex_kx in range(vertex_jx + 1, num_vertices):
-                            face_ix = choose_3(num_vertices) - 1 - (
-                                choose_3(num_vertices - vertex_ix - 1)
-                                + choose_2(num_vertices - vertex_jx - 1)
-                                + num_vertices - vertex_kx - 1
+                            face_ix = (
+                                choose_3(num_vertices)
+                                - 1
+                                - (
+                                    choose_3(num_vertices - vertex_ix - 1)
+                                    + choose_2(num_vertices - vertex_jx - 1)
+                                    + num_vertices
+                                    - vertex_kx
+                                    - 1
+                                )
                             )
                             arr_faces[0, face_ix] = vertex_ix
                             arr_faces[1, face_ix] = vertex_jx
@@ -251,7 +282,7 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
                             arr_faces[3, face_ix] = np.min(
                                 np.maximum(
                                     np.maximum(dm[vertex_ix], dm[vertex_jx]),
-                                    dm[vertex_kx]
+                                    dm[vertex_kx],
                                 )
                             )
             return arr_vertices, arr_edges, arr_faces
@@ -260,10 +291,7 @@ class DowkerComplex(TransformerMixin, BaseEstimator):
             : self.max_dimension + 2
         ]
         if self.max_filtration < np.inf:
-            return (
-                arr[:, arr[-1, :] <= self.max_filtration]
-                for arr in res
-            )
+            return (arr[:, arr[-1, :] <= self.max_filtration] for arr in res)
         else:
             return res
 
