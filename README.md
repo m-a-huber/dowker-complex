@@ -1,3 +1,5 @@
+# DowkerComplex
+
 An implementation of the Dowker complex originally introduced in [<em>Homology Groups of Relations</em>](https://www.jstor.org/stable/1969768) and adapted to the setting of persistent homology in [<em>A functorial Dowker theorem and persistent homology of asymmetric networks</em>](https://link.springer.com/article/10.1007/s41468-018-0020-6).
 The complex is implemented as a class named `DowkerComplex` that largely follows the API conventions from `scikit-learn`.
 

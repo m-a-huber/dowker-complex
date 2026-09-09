@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+  - family-names: "Huber"
+    given-names: "Marius"
+title: "DowkerComplex: Implementation of the Dowker complex"
+version: "1.0.0"
+date-released: 2026-02-11
+url: "https://github.com/m-a-huber/dowker-complex"
